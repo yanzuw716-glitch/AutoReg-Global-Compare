@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全球汽车法规差异化对比平台</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        /* 差异等级颜色定义 */
+        .diff-high { background-color: #fee2e2; border-left: 4px solid #ef4444; } /* 不满足 */
+        .diff-med { background-color: #fef3c7; border-left: 4px solid #f59e0b; } /* 开放点/需测试 */
+        .diff-low { background-color: #d1fae5; border-left: 4px solid #10b981; } /* 满足 */
+        
+        .sticky-header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); background-color: rgba(255,255,255,0.95); }
+        
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c7c7c7; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans" x-data="autoRegApp()" x-init="init()">
+
+    <!-- 顶部导航与全局筛选 -->
+    <header class="bg-white shadow-sm border-b border-gray-200 sticky-header">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-indigo-900"x-text="t('title')">AutoReg Global Compare</h1>
+                </div>
+                
+                <!-- 视图切换器 -->
+                <div class="flex bg-gray-100 p-1 rounded-lg">
+                    <button x-text="t('matrix')" @click="currentView = 'matrix'" :class="currentView === 'matrix' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'" class="px-4 py-2 rounded-md text-sm font-medium transition">矩阵对比</button>
+                    <button x-text="t('item')" @click="currentView = 'item'" :class="currentView === 'item' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'" class="px-4 py-2 rounded-md text-sm font-medium transition">按条目查阅</button>
+                    <button x-text="t('country')" @click="currentView = 'country'" :class="currentView === 'country' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'" class="px-4 py-2 rounded-md text-sm font-medium transition">按市场查阅</button>
+                    <button @click="lang = lang === 'zh' ? 'en' : 'zh'"class="bg-gray-200 px-3 py-1 rounded text-sm"><span x-text="lang === 'zh' ? 'EN' : '中文'"></span></button>
+                </div>
+            </div>
+
+            <!-- 全局过滤器 -->
+            <div class="mt-4 flex flex-wrap gap-3 items-center">
+                <span x-text="t('filter')" class="text-sm font-semibold text-gray-600">筛选维度:</span>
+                
+                <!-- 组别筛选 -->
+               <select 
+    x-model="selectedGroup" 
+    class="border-gray-300 border rounded-md text-sm py-1.5 px-3 focus:ring-indigo-500 focus:border-indigo-500 bg-white">
+
+    <!-- 默认项 -->
+    <option value="all" 
+        x-text="lang==='zh' ? '所有安全组别' : 'All Categories'">
+    </option>
+
+    <!-- 动态组别 -->
+    <template x-for="group in groups" :key="group.id">
+        <option 
+            :value="group.id" 
+            x-text="getLangText(group.name)">
+        </option>
+    </template>
+
+</select>
+
+                <!-- 关键词搜索 -->
+                <div class="relative">
+                    <input type="text" x-model="searchQuery" :placeholder="t('search')" class="border-gray-300 border rounded-md text-sm py-1.5 pl-3 pr-8 focus:ring-indigo-500 focus:border-indigo-500 w-64">
+                    <svg class="w-4 h-4 text-gray-400 absolute right-2 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <div class="flex gap-2 ml-auto">
+    <button 
+    @click="editMode = !editMode"
+    class="bg-indigo-600 text-white px-3 py-1 rounded text-sm">
+
+    <span x-text="editMode ? t('exitEdit') : t('edit')"></span>
+
+</button>
+
+    <button x-show="editMode" @click="addItem"
+        class="bg-purple-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '+条目' : '+Item'"></span>
+    </button>
+
+    <button x-show="editMode" @click="addMarket"
+        class="bg-purple-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '+国家' : '+Market'"></span>
+    </button>
+                </div>
+            </div>
+        </div>
+        
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+
+        <!-- ================= 视图 1: 矩阵对比 (Matrix View) ================= -->
+        <div x-show="currentView === 'matrix'" x-transition.opacity>
+    
+    <div class="mb-4 flex justify-between items-end">
+        
+        <!-- 标题 -->
+        <h2 
+            class="text-xl font-semibold text-gray-800"
+            x-text="lang==='zh' ? '法规差异宏观矩阵' : 'Global Regulation Matrix'">
+        </h2>
+
+        <!-- 图例 -->
+        <p class="text-xs text-gray-500 hidden sm:block">
+            
+            <span x-text="lang==='zh' ? '图例：' : 'Legend:'"></span>
+
+            <!-- 不满足 -->
+            <span class="inline-flex items-center ml-2">
+                <span class="inline-block w-3 h-3 bg-red-100 border-l-4 border-red-500 mr-1"></span>
+                <span x-text="lang==='zh' ? '不满足' : 'Not Fullfill'"></span>
+            </span>
+
+            <!-- 开放点/需测试 -->
+            <span class="inline-flex items-center ml-2">
+                <span class="inline-block w-3 h-3 bg-yellow-100 border-l-4 border-yellow-500 mr-1"></span>
+                <span x-text="lang==='zh' ? '开放点/需测试' : 'Open/Need Test'"></span>
+            </span>
+
+            <!-- 满足 -->
+            <span class="inline-flex items-center ml-2">
+                <span class="inline-block w-3 h-3 bg-green-100 border-l-4 border-green-500 mr-1"></span>
+                <span x-text="lang==='zh' ? '满足' : 'Fullfill'"></span>
+            </span>
+
+        </p>
+    </div>
+
+    <div class="overflow-x-auto bg-white rounded-lg shadow border border-gray-200">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+
+                    <!-- 左表头 -->
+                    <th 
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4 sticky left-0 bg-gray-50 z-10 shadow-r"
+                        x-text="lang==='zh' ? '法规条目 / 组别' : 'Regulation Item / Category'">
+                    </th>
+                            <template x-for="market in markets" :key="market.code">
+    <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[140px]">
+
+    <!-- 展示模式 -->
+    <template x-if="!editMode">
+        <div x-text="getLangText(market.name) + ' (' + getLangText(market.standard) + ')'"></div>
+    </template>
+
+    <!-- 编辑模式 -->
+    <template x-if="editMode">
+        <div class="space-y-1">
+            <input x-model="market.name[lang]"
+                class="border text-xs p-1 w-full">
+
+            <input x-model="market.standard[lang]"
+                class="border text-xs p-1 w-full">
+
+            <button @click="deleteMarket(market.code)"
+                class="text-xs text-red-500 hover:text-red-700">
+                删除
+            </button>
+        </div>
+    </template>
+
+</th>
+</template>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="(item, index) in filteredItems" :key="item.id">
+                            <tr class="hover:bg-gray-50 transition group">
+                                <!-- 左侧固定列：条目信息 -->
+                                <td class="px-6 py-4 whitespace-normal sticky left-0 bg-white z-10 border-r border-gray-100 group-hover:bg-gray-50">
+                                    <template x-if="!editMode">
+    <div class="text-sm font-bold text-indigo-700" x-text="getLangText(item.title)"></div>
+</template>
+
+<template x-if="editMode">
+    <input x-model="item.title[lang]"
+        class="border text-sm p-1 w-full mb-1">
+</template>
+                                    <button x-show="editMode"
+    @click="deleteItem(item.id)"
+    class="text-xs text-red-500 hover:text-red-700 mt-1">
+    删除条目
+</button>
+                                    <div class="text-xs text-gray-500 mt-1 flex items-center">
+                                        <span class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] mr-2" x-text="getGroupName(item.groupId)"></span>
+                                        <template x-if="!editMode">
+    <span x-text="item.regCode"></span>
+</template>
+
+<template x-if="editMode">
+    <input x-model="item.regCode"
+        class="border text-xs p-1 w-full mt-1">
+</template>
+                                    </div>
+                                    <button 
+    @click="toggleDetail(index)" 
+    class="text-xs text-indigo-500 hover:text-indigo-700 mt-2 font-medium flex items-center">
+
+    <span 
+        x-text="
+            expandedRow === index 
+            ? (lang==='zh' ? '收起详情' : 'Collapse') 
+            : (lang==='zh' ? '展开对比详情' : 'Expand Details')
+        ">
+    </span>
+
+    <svg 
+        class="w-3 h-3 ml-1 transform transition-transform"
+        :class="expandedRow === index ? 'rotate-180' : ''"
+        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+    </svg>
+</button>
+                                </td>
+                                
+                                <!-- 动态列：各市场状态 -->
+                                <template x-for="market in markets" :key="market.code">
+                                    <td class="px-4 py-4 text-center align-top cursor-pointer hover:bg-gray-100 transition" 
+                                        @click="openModal(item, market)"
+                                        :class="getCellClass(item, market.code)">
+                                        <div class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold mb-2"
+                                             :class="getBadgeColor(item, market.code)">
+                                            <span x-text="getLangText(getShortStatus(item, market.code))"></span>
+                                        </div>
+                                        <div class="text-[11px] text-gray-600 leading-tight font-medium" x-text="getLangText(getSummary(item, market.code))"></div>
+                                        <div class="text-[10px] text-gray-400 mt-1 truncate" x-text="getLangText(getTechHighlight(item, market.code))"></div>
+                                    </td>
+                                </template>
+                            </tr>
+                            <!-- 展开的详情行 -->
+                            <tr x-show="expandedRow === index" x-collapse class="bg-gray-50">
+                                <td :colspan="markets.length + 1" class="px-6 py-6">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <template x-for="market in markets" :key="market.code">
+                                            <div class="bg-white p-4 rounded border border-gray-200 shadow-sm relative overflow-hidden">
+                                                <div class="absolute top-0 left-0 w-1 h-full" :class="getBadgeColor(item, market.code).replace('text-', 'bg-').replace('white', '500')"></div>
+                                                <h4 class="font-bold text-sm text-gray-800 mb-2 pl-2" x-text="getLangText(market.name) + (lang==='zh' ? ' 深度解读' : ' Detail')"></h4>
+                                                <p class="text-xs text-gray-600 leading-relaxed mb-3 pl-2" x-text="getLangText(getFullDetail(item, market.code))"></p>
+                                                <div class="pl-2 pt-2 border-t border-gray-100">
+                                                    <span class="text-[10px] text-gray-400 block mb-1">关键测试参数:</span>
+                                                    <span class="text-[11px] text-indigo-600 font-mono bg-indigo-50 px-1.5 py-0.5 rounded" x-text="getLangText(getTestParam(item, market.code))"></span>
+                                                </div>
+                                                <a href="#" class="pl-2 inline-block mt-3 text-[10px] text-gray-400 hover:text-indigo-600 underline">查看官方原文 &rarr;</a>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ================= 视图 2: 条目详情 (Item-Centric View) ================= -->
+        <div x-show="currentView === 'item'" x-cloak>
+            <h2 class="text-xl font-semibold text-gray-800 mb-2">按法规条目深度解读</h2>
+            <p class="text-sm text-gray-500 mb-6">针对具体技术点，横向对比全球主要市场的合规要求差异。</p>
+            
+            <div class="space-y-8">
+                <template x-for="item in filteredItems" :key="item.id">
+                    <div class="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+                        <!-- 卡片头部 -->
+                        <div class="bg-gradient-to-r from-indigo-50 to-white px-6 py-5 border-b border-indigo-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="text-xs font-bold text-indigo-800 bg-indigo-200 px-2 py-0.5 rounded" x-text="getLangText(getGroupName(item.groupId))"></span>
+                                    <span class="text-xs font-mono text-gray-500" x-text="getLangText(item.regCode)"></span>
+                                </div>
+                                <h3 class="text-lg font-bold text-gray-900" x-text="getLangText(item.title)"></h3>
+                            </div>
+                            <button class="text-sm text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-md transition font-medium">
+                                导出该条目对比报告
+                            </button>
+                        </div>
+                        
+                        <!-- 卡片内容：网格布局 -->
+                        <div class="p-6 bg-gray-50">
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                                <template x-for="market in markets" :key="market.code">
+                                    <div class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition duration-200 flex flex-col h-full">
+                                        <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                            <div class="flex items-center gap-2">
+                                                <span class="w-2 h-2 rounded-full" :class="getDotColor(item, market.code)"></span>
+                                                <h4 class="font-bold text-gray-800" x-text="getLangText(market.name)"></h4>
+                                            </div>
+                                            <span class="px-2 py-0.5 text-[10px] uppercase font-bold rounded border" 
+                                                  :class="getBadgeBorderClass(item, market.code)"
+                                                  x-text="getLangText(getStatusLabel(item, market.code))"></span>
+                                        </div>
+                                        <div class="p-4 flex-grow">
+                                            <div class="mb-3">
+                                                <span class="text-[10px] text-gray-400 uppercase font-semibold">核心要求</span>
+                                                <p class="text-sm text-gray-700 mt-1 leading-snug" x-text="getLangText(getSummary(item, market.code))"></p>
+                                            </div>
+                                            <div class="mb-3">
+                                                <span class="text-[10px] text-gray-400 uppercase font-semibold">详细解读</span>
+                                                <p class="text-xs text-gray-600 mt-1 leading-relaxed" x-text="getLangText(getFullDetail(item, market.code))"></p>
+                                            </div>
+                                            <div class="bg-gray-50 p-2 rounded text-xs font-mono text-gray-600 border border-gray-100">
+                                                <span class="block text-[10px] text-gray-400 mb-0.5">TEST PARAM:</span>
+                                                <span x-text="getLangText(getTestParam(item, market.code))"></span>
+                                            </div>
+                                        </div>
+                                        <div class="px-4 py-3 bg-gray-50 border-t border-gray-100 rounded-b-lg mt-auto">
+                                            <a href="#" class="text-xs text-indigo-600 font-medium hover:underline flex items-center">
+                                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                                查看标准原文
+                                            </a>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- ================= 视图 3: 市场概览 (Market-Centric View) ================= -->
+        <div x-show="currentView === 'country'" x-cloak>
+            <h2 class="text-xl font-semibold text-gray-800 mb-2">按目标市场合规概览</h2>
+            <p class="text-sm text-gray-500 mb-6">快速了解特定市场的准入壁垒和重点监管领域。</p>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <template x-for="market in markets" :key="market.code">
+                    <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden flex flex-col">
+                        <div class="bg-indigo-900 px-6 py-6 text-white relative overflow-hidden">
+                            <div class="relative z-10">
+                                <h3 class="text-2xl font-bold" x-text="getLangText(market.name)"></h3>
+                                <p class="text-indigo-200 text-sm mt-1 font-mono" x-text="getLangText(market.standard)"></p>
+                                <p class="text-indigo-100 text-xs mt-3 leading-relaxed opacity-90" x-text="getLangText(market.description)"></p>
+                            </div>
+                            <!-- 装饰背景 -->
+                            <div class="absolute right-0 top-0 h-full w-32 bg-indigo-800 opacity-50 transform skew-x-12 translate-x-10"></div>
+                        </div>
+                        
+                        <div class="p-6 flex-grow">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">关键合规挑战 (Top Issues)</h4>
+                            <ul class="space-y-4">
+                                <template x-for="highlight in getMarketHighlights(market.code)" :key="highlight.itemId">
+                                    <li class="flex gap-3 items-start">
+                                        <span class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white mt-0.5"
+                                              :class="getBadgeColor(findItem(highlight.itemId), market.code)">
+                                            !
+                                        </span>
+                                        <div>
+                                            <span class="block text-sm font-bold text-gray-800" x-text="getLangText(findItem(highlight.itemId).title)"></span>
+                                            <p class="text-xs text-gray-600 mt-1 leading-snug" x-text="getLangText(highlight.text)"></p>
+                                        </div>
+                                    </li>
+                                </template>
+                            </ul>
+                            
+                            <div class="mt-6 pt-4 border-t border-gray-100">
+                                <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">其他关注点</h4>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">排放法规</span>
+                                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">网络安全 (R155)</span>
+                                    <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-md">软件升级 (R156)</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="p-4 bg-gray-50 border-t border-gray-200">
+                            <button class="w-full py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-indigo-300 transition shadow-sm flex justify-center items-center gap-2">
+                                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                下载 <span x-text="getLangText(market.name)"></span> 完整准入指南
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 弹窗：详细对比 (Modal) -->
+    <div x-show="modalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div x-show="modalOpen" x-transition.opacity class="fixed inset-0 bg-gray-900 bg-opacity-60 transition-opacity" @click="modalOpen = false"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div x-show="modalOpen" x-transition.scale class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+                <div class="bg-white px-6 pt-6 pb-4">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 class="text-lg leading-7 font-bold text-gray-900" id="modal-title">
+                                <span x-text="getLangText(activeItem?.title)"></span>
+                            </h3>
+                            <p class="text-sm text-gray-500 mt-1" x-text="getLangText(activeItem?.regCode)"></p>
+                        </div>
+                        <button @click="modalOpen = false" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                    
+                    <div class="bg-indigo-50 rounded-lg p-5 mb-6 border border-indigo-100">
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-2 py-1 text-xs font-bold rounded bg-white text-indigo-700 border border-indigo-200" x-text="getLangText(activeMarket?.name)"></span>
+                            <span class="text-sm font-semibold text-indigo-900">专项解读</span>
+                        </div>
+                        <textarea
+x-model="activeItem.details[activeMarket.code].full[lang]"
+:disabled="!editMode"
+:placeholder="lang==='zh'?'解读说明...':'Interpretation...'"
+class="w-full border p-2 text-sm mb-2">
+</textarea>
+
+<input
+    x-model="activeItem.details[activeMarket.code].summary[lang]"
+    :disabled="!editMode"
+    :placeholder="lang==='zh'?'对比结果...':'Comparison Result...'"
+    class="w-full border p-2 text-sm mb-2">
+
+<input
+    x-model="activeItem.details[activeMarket.code].test[lang]"
+    :disabled="!editMode"
+    :placeholder="lang==='zh'?'总结信息...':'Summary Information...'"
+    class="w-full border p-2 text-sm mb-2">
+
+<select
+    x-model="activeItem.details[activeMarket.code].status"
+    :disabled="!editMode"
+    class="w-full border p-2 text-sm mb-2">
+    <option value="not_fullfill" x-text="lang==='zh'?'不满足':'Not Fullfill'"></option>
+    <option value="open_need_test" x-text="lang==='zh'?'开放点/需测试':'Open/Need Test'"></option>
+    <option value="fullfill" x-text="lang==='zh'?'满足':'Fullfill'"></option>
+</select>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+    <!-- 左：国际标准 -->
+    <div class="border rounded-lg p-4 bg-gray-50">
+        <h4 class="text-xs font-bold text-gray-500 uppercase mb-2">通用国际标准参考</h4>
+
+        <!-- 查看模式 -->
+        <template x-if="!editMode">
+            <p class="text-sm text-gray-600"
+               x-text="getLangText(activeItem?.globalNote) || getLangText('通常基于 UN Regulation (ECE) 或 ISO 标准，要求半径大于 2.5mm 的凸出物需进行动态测试。')"></p>
+        </template>
+
+        <!-- 编辑模式 -->
+        <template x-if="editMode">
+            <textarea
+                x-model="activeItem.globalNote[lang]"
+                class="w-full border p-2 text-sm"
+                placeholder="填写国际通用标准说明...">
+            </textarea>
+        </template>
+    </div>
+
+    <!-- 右：国家特殊 -->
+    <div class="border rounded-lg p-4 bg-gray-50">
+
+        <h4 class="text-xs font-bold text-gray-500 uppercase mb-2"
+            x-text="getLangText(activeMarket?.name) + (lang==='zh' ? ' 法规特殊项' : ' Special Regulatory Items')"></h4>
+
+        <!-- 查看模式 -->
+        <template x-if="!editMode">
+            <div>
+                <p class="text-sm text-gray-600 font-mono text-xs"
+                   x-text="getLangText(activeItem && activeMarket ? getLangText(getTestParam(activeItem, activeMarket.code)) : '')"></p>
+
+                <p class="text-xs text-gray-500 mt-2"
+                   x-text="getLangText(activeItem && activeMarket ? getLangText(getSpecialRequirement(activeItem, activeMarket.code)) : '')"></p>
+            </div>
+        </template>
+
+        <!-- 编辑模式 -->
+        <template x-if="editMode">
+            <div>
+                <textarea
+                    x-model="activeItem.details[activeMarket.code].test[lang]"
+                    class="w-full border p-2 text-xs mb-2"
+                    placeholder="测试参数">
+                </textarea>
+
+                <textarea
+                    x-model="activeItem.details[activeMarket.code].special[lang]"
+                    class="w-full border p-2 text-xs"
+                    placeholder="特殊要求">
+                </textarea>
+            </div>
+        </template>
+
+    </div>
+</div>
+                <div class="bg-gray-50 px-6 py-4 sm:flex sm:flex-row-reverse border-t border-gray-100">
+                    <button @click="modalOpen = false" type="button" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                        关闭
+                    </button>
+                    <button 
+@click="copyTestParam()"
+type="button"
+class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+复制技术参数
+</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        
+        function autoRegApp() {
+            
+            return {
+                i18n: {
+    zh: {
+        title: "全球汽车法规差异化对比平台",
+        matrix: "矩阵对比",
+        item: "按条目查阅",
+        country: "按市场查阅",
+        filter: "筛选维度",
+        allGroup: "所有安全组别",
+        search: "搜索法规条目",
+        edit: "编辑模式",
+        exitEdit: "退出编辑"
+    },
+    en: {
+        title: "Global Automotive Regulation Comparison Platform",
+        matrix: "Matrix View",
+        item: "Item View",
+        country: "Market View",
+        filter: "Filters",
+        allGroup: "All Categories",
+        search: "Search regulations",
+        edit: "Edit Mode",
+        exitEdit: "Exit Edit"
+    }
+},
+t(key){
+    return this.i18n[this.lang][key] || key
+},
+                editMode:false,
+                currentView: 'matrix', 
+                selectedGroup: 'all',
+                searchQuery: '',
+                expandedRow: null,
+                modalOpen: false,
+                activeItem: null,
+                activeMarket: null,
+
+                // 模拟数据：主要汽车市场
+                markets: [
+                   { code: 'CN', name:{ zh:'中国', en:'China' }, standard: { zh:'GB标准', en:'GB Standards' }, description: { zh:'强制性国家标准 (GB)，部分等效采用 ECE 法规，但在行人保护和内饰细节上有本土化加严趋势。', en:'Mandatory National Standards (GB), partially equivalent to ECE regulations, but with localized tightening trends in pedestrian protection and interior details.' } },
+                    { code: 'EU', name:{ zh:'欧盟', en:'Europe' }, standard: { zh:'UN/ECE法规', en:'UN/ECE Regulations' }, description: { zh:'采用联合国欧洲经济委员会 (UNECE) 法规，全球最严格的行人保护和被动安全标准之一，型式认证互认。', en:'Adopting United Nations Economic Commission for Europe (UNECE) regulations, one of the strictest pedestrian protection and passive safety standards globally, with mutual recognition of type approval.' } },
+                    { code: 'US', name:{ zh:'美国', en:'United States' }, standard: { zh:'FMVSS', en:'FMVSS' }, description: { zh:'联邦机动车安全标准 (FMVSS)，自我认证模式。测试假人、碰撞速度和评价指标与 ECE 有显著差异。', en:'Federal Motor Vehicle Safety Standards (FMVSS), self-certification model. Test dummies, collision speeds, and evaluation criteria differ significantly from ECE.' } },
+                    { code: 'JP', name:{ zh:'日本', en:'Japan' }, standard: { zh:'安全法规', en:'Safety Regulations' }, description: { zh:'日本保安基准，高度协调于 UN Regulation，但在微型车 (K-Car) 和部分行人保护测试上有独特要求。', en:'Japan Safety Standards, highly coordinated with UN Regulations, but with unique requirements for subcompact vehicles (K-Car) and certain pedestrian protection tests.' } }
+                ],
+
+                // 模拟数据：法规组别
+                groups: [
+                    { id: 'interior', name: { zh: '内部凸出物 ', en: 'Interior Projections' } },
+                    { id: 'visibility', name: { zh: '视野与除霜', en: 'Visibility & Defrosting' } },
+                    { id: 'pedestrian', name: { zh: '行人保护 ', en: 'Pedestrian Protection' } }
+                ],
+
+                // 模拟数据：法规条目 (核心数据结构 - 已替换为汽车领域内容)
+                items: [
+                    {
+                        id: 201,
+                        groupId: 'interior',
+                        regCode: 'GB 11552 / FMVSS 201 / ECE R21',
+                        title: {zh: '内部凸出物', en: 'Interior Projections'},
+                        details: {
+                            CN: { status: 'fullfill',   summary: { zh:'等效 ECE R21', en:'Equivalent to ECE R21' }, full: { zh:'GB 11552 基本等效采用 ECE R21。要求乘员舱内无危险锐边，凸出物高度超过规定需进行头部碰撞测试。', en:'GB 11552 is basically equivalent to ECE R21. It requires no dangerous sharp edges in the occupant compartment, and protrusions exceeding specified heights require head impact testing.' }, special: { zh:'对新能源车型电池包上方的内饰防护有额外建议。', en:'Additional recommendations for interior protection above battery packs in new energy vehicles.' }, test: { zh:'50mm 半径球体接触，动态头型撞击速度 24km/h', en:'50mm radius sphere contact, dynamic headform impact speed 24km/h' } },
+                            EU: { status: 'fullfill', summary: { zh:'ECE R21 强制', en:'ECE R21 Mandatory' }, full: { zh:'严格执行 ECE R21。所有可能接触到的表面必须光滑，任何凸出物若高度超过限制，必须通过动态测试证明不会造成严重伤害。', en:'Strictly enforce ECE R21. All surfaces that may be contacted must be smooth, and any protrusions exceeding the limit must pass dynamic testing to prove they will not cause serious injury.' }, special: { zh:'包括遮阳板、拉手、按钮在内的所有部件。', en:'All components including sun visors, handles, and buttons.' }, test: { zh:'头型模型撞击，HIC 值限制严格', en:'Headform impact testing, strict HIC value limits' } },
+                            US: { status: 'open_need_test', summary: { zh:'FMVSS 201U', en:'FMVSS 201U' }, full: { zh:'FMVSS 201 侧重上部内饰 (Head Impact Protection)。对仪表板、立柱、车顶的要求与美国特有的混合假人测试相关。', en:'FMVSS 201 focuses on upper interior (Head Impact Protection). Requirements for the dashboard, pillars, and roof are related to the unique hybrid dummy testing in the United States.' }, special: { zh:'允许某些功能性凸出物存在，只要满足吸能要求。', en:'Allows certain functional protrusions to exist as long as they meet energy absorption requirements.' }, test: { zh:'自由运动头型 (FMH) 测试，速度 24km/h (15mph)', en:'Free-Motion Head (FMH) testing, speed 24km/h (15mph)' } },
+                            JP: { status: 'fullfill', summary: { zh:'协调 ECE', en:'Coordinated with ECE' }, full: { zh:'日本保安基准与 ECE R21 高度协调。对于符合 ECE 认证的部件通常直接认可。', en:'Japanese safety standards are highly coordinated with ECE R21. Components that comply with ECE certification are usually directly recognized.' }, special: { zh:"针对 K-Car 内部空间狭小特点，有部分豁免条款。", en:"For K-Car's small interior space characteristics, there are some exemption clauses." }, test: { zh:'同 ECE R21 标准', en:'Same as ECE R21 standard' } }
+                        }
+                    },
+                    {
+                        id: 202,
+                        groupId: 'visibility',
+                        regCode: 'GB 11556 / FMVSS 103 / ECE R122',
+                        title: { zh: '除霜除雾系统', en: 'Defrosting/Defogging' },
+                        details: {
+                            CN: { status: 'open_need_test', summary: { zh:'面积覆盖率要求', en:'Area Coverage Requirements' }, full: { zh:'GB 11556 规定了前风窗玻璃除霜、除雾系统的性能要求，重点在于指定区域内的冰/雾清除百分比和时间。', en:'GB 11556 specifies performance requirements for front windshield defrosting and demisting systems, focusing on the percentage and time of ice/fog removal in designated areas.' }, special: { zh:'需在环境温度 -18°C 下进行测试。', en:'Testing must be conducted at an ambient temperature of -18°C.' }, test: { zh:'A 区 90% / B 区 80% 清除率，时间限制 20min', en:'Zone A 90% / Zone B 80% clearance rate, time limit 20min' } },
+                            EU: { status: 'open_need_test', summary: { zh:'ECE R122', en:'ECE R122' }, full: { zh:'ECE R122 详细规定了测试程序。不仅要求除霜，还强调除雾性能。测试工况包含高湿度环境。', en:'ECE R122 details the testing procedures. It not only requires defrosting but also emphasizes demisting performance. Test conditions include high humidity environments.' }, special: { zh:'对电动汽车热泵系统的除霜效率有新的评估方法。', en:'New evaluation methods for the defrosting efficiency of electric vehicle heat pump systems.' }, test: { zh:'A 区 95% / B 区 90% (更严格)，含湿度循环', en:'Zone A 95% / Zone B 90% (stricter), with humidity cycles' } },
+                            US: { status: 'not_fullfill', summary: { zh:'FMVSS 103 极严', en:'FMVSS 103 Extremely Strict' }, full: { zh:'FMVSS 103 是全球最严苛的除霜标准之一。要求在极低温下 (-18°F / -28°C) 短时间内达到极高的清除率，且对除雾有单独的性能指标。', en:'FMVSS 103 is one of the most stringent defrosting standards globally. It requires achieving extremely high clearance rates within a short time frame under extreme cold conditions (-18°F / -28°C), with separate performance metrics for demisting.' }, special: { zh:'测试温度更低，时间要求更短，失败率高。', en:'Lower test temperatures, shorter time requirements, and high failure rates.' }, test: { zh:'-28°C 环境，A 区 95% 清除仅需 10-15min', en:'Environment at -28°C, Zone A 95% clearance requires only 10-15min' } },
+                            JP: { status: 'fullfill', summary: { zh:'温和气候适配', en:'Mild Climate Adaptation' }, full: { zh:'考虑到日本气候特点，部分严寒测试要求略有放宽，但仍需保证基本视野安全。', en:"Considering Japan's climate characteristics, some severe cold-weather test requirements are slightly relaxed, but basic visibility safety must still be ensured." }, special: { zh:'注重除雾性能而非极端除霜。', en:'Focus on demisting performance rather than extreme defrosting.' }, test: { zh:'标准循环测试，侧重湿度控制', en:'Standard cycle testing, focusing on humidity control' } }
+                        }
+                    },
+                    {
+                        id: 203,
+                        groupId: 'pedestrian',
+                        regCode: 'GB/T 24550 / GTR No.9 / ECE R127',
+                        title: { zh: '行人头部碰撞保护', en: 'Pedestrian Head Impact' },
+                        details: {
+                            CN: { status: 'open_need_test', summary: { zh:'推荐转强制过渡', en:'Transition from Recommended to Mandatory' }, full: { zh:'原为推荐性标准，现逐步纳入强制性管理。参照 GTR No.9，要求发动机罩前沿区域满足 HIC 值限制。', en:'Originally a recommended standard, now gradually incorporated into mandatory management. Referencing GTR No.9, it requires the front edge area of the bonnet to meet HIC value limits.' }, special: { zh:'对车辆前部结构刚度有明确限制，鼓励使用主动弹起引擎盖。', en:'Clear restrictions on vehicle front structure stiffness, encouraging the use of active pop-up bonnets.' }, test: { zh:'儿童/成人头型撞击，HIC < 1000 (部分区域)', en:'Child/Adult headform impact, HIC < 1000 (partial areas)' } },
+                            EU: { status: 'not_fullfill', summary: { zh:'ECE R127 强制', en:'ECE R127 Mandatory' }, full: { zh:'全球最严。不仅要求头部保护，还包括腿部碰撞保护。要求车辆在碰撞瞬间通过传感器触发主动保护措施。', en:'The most stringent globally. It not only requires head protection but also includes leg impact protection. Vehicles must trigger active protection measures through sensors upon impact.' }, special: { zh:'测试覆盖面积大，包括挡风玻璃下部区域。', en:'Large test coverage area, including the lower part of the windshield.' }, test: { zh:'多点位撞击，HIC 限值极低，含腿型冲击', en:'Multi-point impact, extremely low HIC limits, including legform impact' } },
+                            US: { status: 'fullfill', summary: { zh:'自愿性为主', en:'Voluntary by Nature' }, full: { zh:'FMVSS 目前没有强制的行人保护法规。主要依赖 NCAP (新车评价规程) 的星级评定来推动车企改进。', en:'FMVSS currently has no mandatory pedestrian protection regulations. It mainly relies on NCAP (New Car Assessment Program) star ratings to drive automakers to improve.' }, special: { zh:'大部分车型仅满足最低安全要求，主动弹起引擎盖选配较少。', en:'Most models only meet minimum safety requirements, and active pop-up bonnets are less commonly equipped.' }, test: { zh:'NCAP 测试参考，非强制准入条件', en:'NCAP test reference, not a mandatory准入 condition' } },
+                            JP: { status: 'not_fullfill', summary: { zh:'早期推行者', en:'Early Adopter' }, full: { zh:'日本是最早推行行人保护法规的国家之一。标准极其细致，对发动机罩下的缓冲空间有严格要求。', en:'Japan is one of the earliest countries to implement pedestrian protection regulations. The standards are extremely detailed, with strict requirements for the buffer space under the hood.' }, special: { zh:'针对小型车有特殊的评价曲线。', en:'Special evaluation curves for compact cars.' }, test: { zh:'J-NCAP 高分要求，HIC 限制严格', en:'High score requirements by J-NCAP, strict HIC limits' } }
+                        }
+                    },
+                    {
+                        id: 204,
+                        groupId: 'interior',
+                        regCode: 'GB 11552 / FMVSS 201 / ECE R21',
+                        title: { zh: '座椅强度与头枕', en: 'Seat Strength & Head Restraints' },
+                        details: {
+                            CN: { status: 'fullfill', summary: { zh:'等效 ECE R17', en:'Equivalent to ECE R17' }, full: { zh:'GB 11550/11551 等效采用 ECE R17/R25。要求座椅在追尾碰撞中保持强度，头枕需限制头部后仰。', en:'GB 11550/11551 is equivalent to ECE R17/R25. It requires seats to maintain strength in rear-end collisions, and head restraints must limit head backward extension.' }, special: { zh:'无明显差异。', en:'No significant differences.' }, test: { zh:'静态加载测试，力矩测试', en:'Static loading test, moment test' } },
+                            EU: { status: 'fullfill', summary: { zh:'ECE R17/R25', en:'ECE R17/R25' }, full: { zh:'标准成熟，重点关注头枕的高度和锁止机构的可靠性。', en:'The standard is mature, focusing on the height of head restraints and the reliability of locking mechanisms.' }, special: { zh:'新增对后排座椅头枕的要求。', en:'Additional requirements for rear seat head restraints added.' }, test: { zh:'动态鞭打测试 (Whiplash)', en:'Dynamic whiplash test' } },
+                            US: { status: 'open_need_test', summary: { zh:'FMVSS 202a', en:'FMVSS 202a' }, full: { zh:'FMVSS 202a 特别强调防挥鞭伤 (Whiplash) 性能，测试假人和评价体系与 ECE 不同。', en:'FMVSS 202a particularly emphasizes whiplash protection performance, with test dummies and evaluation systems different from ECE.' }, special: { zh:'头枕高度和锁定位置要求更具体。', en:'More specific requirements for head restraint height and locking positions.' }, test: { zh:'BioRID 假人动态测试', en:'BioRID dummy dynamic test' } },
+                            JP: { status: 'fullfill', summary: { zh:'协调标准', en:'Coordinated Standard' }, full: { zh:'与 ECE 保持一致。', en:'Maintains consistency with ECE.' }, special: { zh:'无。', en:'None.' }, test: { zh:'同 ECE', en:'Same as ECE' } }
+                        }
+                    }
+                ],
+
+                // --- 辅助函数 ---
+
+                get filteredItems() {
+                    return this.items.filter(item => {
+                        const matchGroup = this.selectedGroup === 'all' || item.groupId === this.selectedGroup;
+                        const titleText = this.getLangText(item.title)
+
+const matchSearch = 
+    titleText.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+    (item.regCode && item.regCode.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                        return matchGroup && matchSearch;
+                    });
+                },
+
+                findItem(id) {
+                    return this.items.find(x => x.id === id);
+                },
+
+                getGroupName(id) {
+    const g = this.groups.find(x => x.id === id);
+    return g ? this.getLangText(g.name) : (this.lang==='zh'?'未知组别':'Unknown');
+},
+
+                copyTestParam(){
+    if(!this.activeItem || !this.activeMarket) return
+
+    const data = this.activeItem.details[this.activeMarket.code]
+
+    const text = `
+【${this.getLangText(this.activeMarket.name)}】
+测试参数：${this.getLangText(data.test)}
+特殊要求：${this.getLangText(data.special)}
+`
+
+    navigator.clipboard.writeText(text)
+
+    alert('已复制！')
+},
+            //中英文切换
+                lang: 'zh',
+                getLangText(val){
+    // 防止 null / undefined
+    if(val === null || val === undefined) return ''
+
+    // 如果是对象
+    if(typeof val === 'object'){
+        return val[this.lang] ?? val.zh ?? val.en ?? ''
+    }
+
+    // 如果是字符串（已经被污染）
+    return val
+},
+                normalizeText(val){
+    // 已经是多语言对象
+    if(typeof val === 'object' && val !== null){
+        return val
+    }
+
+    // 如果是 "中文 (English)" 这种
+    if(typeof val === 'string' && val.includes('(')){
+        const match = val.match(/(.*)\((.*)\)/)
+        if(match){
+            return {
+                zh: match[1].trim(),
+                en: match[2].trim()
+            }
+        }
+    }
+
+    // 普通字符串 → 两边都一样
+    return {
+        zh: val || '',
+        en: val || ''
+    }
+},
+                // 获取单元格背景样式
+                getCellClass(item, marketCode) {
+                    const detail = item.details[marketCode];
+                    if (!detail) return '';
+                    if (detail.status === 'not_fullfill') return 'diff-high';
+                    if (detail.status === 'open_need_test') return 'diff-med';
+                    return 'diff-low';
+                },
+
+                // 获取徽章颜色 (背景色)
+                getBadgeColor(item, marketCode) {
+                    const detail = item.details[marketCode];
+                    if (!detail) return 'bg-gray-200 text-gray-500';
+                    if (detail.status === 'not_fullfill') return 'bg-red-500 text-white';
+                    if (detail.status === 'open_need_test') return 'bg-yellow-500 text-white';
+                    return 'bg-green-500 text-white';
+                },
+                
+                // 获取徽章边框类 (用于条目视图)
+                getBadgeBorderClass(item, marketCode) {
+                    const detail = item.details[marketCode];
+                    if (!detail) return 'border-gray-300 text-gray-500';
+                    if (detail.status === 'not_fullfill') return 'border-red-500 text-red-600 bg-red-50';
+                    if (detail.status === 'open_need_test') return 'border-yellow-500 text-yellow-600 bg-yellow-50';
+                    return 'border-green-500 text-green-600 bg-green-50';
+                },
+
+                // 获取小圆点颜色
+                getDotColor(item, marketCode) {
+                     const detail = item.details[marketCode];
+                    if (!detail) return 'bg-gray-300';
+                    if (detail.status === 'not_fullfill') return 'bg-red-500';
+                    if (detail.status === 'open_need_test') return 'bg-yellow-500';
+                    return 'bg-green-500';
+                },
+
+                getShortStatus(item, marketCode) {
+    const map = { 
+        not_fullfill: { zh:'不满足', en:'Not Fullfill' },
+        open_need_test: { zh:'开放点/需测试', en:'Open/Need Test' },
+        fullfill: { zh:'满足', en:'Fullfill' }
+    };
+    return this.getLangText(map[item.details[marketCode]?.status])
+},
+
+                getStatusLabel(item, marketCode) {
+    const map = { 
+        not_fullfill: { zh:'不满足', en:'Not Fullfill' },
+        open_need_test: { zh:'开放点/需测试', en:'Open/Need Test' },
+        fullfill: { zh:'满足', en:'Fullfill' }
+    };
+    return this.getLangText(map[item.details[marketCode]?.status])
+
+},
+
+                getSummary(item, marketCode) {
+                    return item.details[marketCode]?.summary || '暂无摘要';
+                },
+
+                getFullDetail(item, marketCode) {
+                    return item.details[marketCode]?.full || '暂无详细解读';
+                },
+
+                getSpecialRequirement(item, marketCode) {
+                    return item.details[marketCode]?.special || '无特殊额外要求';
+                },
+
+                getTestParam(item, marketCode) {
+                    return item.details[marketCode]?.test || '标准测试程序';
+                },
+                
+                getTechHighlight(item, marketCode) {
+                    // 提取测试参数的前几个字作为简短提示
+                    const param = item.details[marketCode]?.test || '';
+                    return param.length > 12 ? param.substring(0, 12) + '...' : param;
+                },
+
+                toggleDetail(index) {
+                    if (this.expandedRow === index) {
+                        this.expandedRow = null;
+                    } else {
+                        this.expandedRow = index;
+                    }
+                },
+
+                openModal(item, market) {
+                    this.activeItem = item;
+                    this.activeMarket = market;
+                    this.modalOpen = true;
+                },
+
+                // 为市场视图提取高光点 (展示该市场最严格或有差异的条目)
+                getMarketHighlights(marketCode) {
+                    return this.items
+                        .filter(item => {
+                            const s = item.details[marketCode]?.status;
+                            // 展示不满足或开放点/需测试的条目
+                            return s === 'not_fullfill' || s === 'open_need_test';
+                        })
+                        .map(item => ({
+                            itemId: item.id,
+                            text: this.getLangText(item.details[marketCode].summary) + '。' + 
+      this.getLangText(item.details[marketCode].full).substring(0, 40) + '...'
+                        }));
+                },
+
+                init(){
+    const saved = localStorage.getItem('autoRegData')
+    if(saved){
+        const data = JSON.parse(saved)
+
+        // 🔥 修复 items
+        data.items.forEach(item=>{
+            if(typeof item.title === 'string'){
+                item.title = { zh:item.title, en:item.title }
+            }
+
+            if(typeof item.globalNote === 'string'){
+    item.globalNote = { zh:item.globalNote, en:item.globalNote }
+}
+
+Object.values(item.details).forEach(d=>{
+    ['summary','full','special','test'].forEach(k=>{
+        if(typeof d[k] === 'string'){
+            d[k] = { zh:d[k], en:d[k] }
+        }
+    })
+})
+        })
+
+        // 🔥 修复 markets
+        data.markets.forEach(m=>{
+            if(typeof m.name === 'string'){
+                m.name = { zh:m.name, en:m.name }
+            }
+            if(typeof m.standard === 'string'){
+                m.standard = { zh:m.standard, en:m.standard }
+            }
+            if(typeof m.description === 'string'){
+                m.description = { zh:m.description, en:m.description }
+            }
+        })
+
+        this.items = data.items
+        this.markets = data.markets
+        if(data.groups) this.groups = data.groups
+    }
+
+    this.$watch('items', () => this.save(), { deep: true })
+    this.$watch('markets', () => this.save(), { deep: true })
+},
+
+save(){
+    clearTimeout(this._saveTimer)
+    this._saveTimer = setTimeout(()=>{
+        localStorage.setItem('autoRegData', JSON.stringify({
+            items:this.items,
+            markets:this.markets,
+    groups:this.groups
+        }))
+    }, 500)
+},
+
+addItem(){
+    const id = Date.now()
+    const newItem = {
+        id,
+        groupId:'interior',
+        regCode:'NEW',
+        title:{ zh:'新条目', en:'New Item' },
+        globalNote:{ zh:'', en:'' },
+        details:{}
+    }
+
+    this.markets.forEach(m=>{
+        newItem.details[m.code]={
+            status:'fullfill',
+            summary:{ zh:'', en:'' },
+            full:{ zh:'', en:'' },
+            special:{ zh:'', en:'' },
+            test:{ zh:'', en:'' }
+        }
+    })
+
+    this.items.push(newItem)
+},
+
+addMarket(){
+    const code='M'+Date.now()
+
+    const newMarket={
+        code,
+        name:{ zh:'新国家', en:'New Market' },
+        standard:{ zh:'NEW', en:'NEW' },
+        description:{ zh:'', en:'' }
+    }
+
+    this.markets.push(newMarket)
+
+    this.items.forEach(item=>{
+        item.details[code]={
+            status:'fullfill',
+            summary:{ zh:'', en:'' },
+            full:{ zh:'', en:'' },
+            special:{ zh:'', en:'' },
+            test:{ zh:'', en:'' }
+        }
+    })
+},
+
+deleteItem(id){
+    this.items = this.items.filter(item => item.id !== id)
+},
+
+deleteMarket(code){
+    this.markets = this.markets.filter(m => m.code !== code)
+
+    this.items = this.items.map(item => {
+        const newDetails = { ...item.details }
+        delete newDetails[code]
+        return { ...item, details: newDetails }
+    })
+}
+}
+            }
+        
+    </script>
+</body>
+</html>
