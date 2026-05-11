@@ -1,0 +1,2868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全球汽车法规差异化对比平台</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- 引入 jsPDF 用于PDF导出 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- 引入 html2canvas 用于PDF导出 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- 引入 jsPDF 中文支持 -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <!-- 引入 Supabase JS 库（异步加载，不阻塞页面） -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" ></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        /* 差异等级颜色定义 */
+        .diff-high { background-color: #fee2e2; border-left: 4px solid #ef4444; } /* 不满足 */
+        .diff-med { background-color: #fef3c7; border-left: 4px solid #f59e0b; } /* 开放点/需测试 */
+        .diff-low { background-color: #d1fae5; border-left: 4px solid #10b981; } /* 满足 */
+        
+        .sticky-header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); background-color: rgba(255,255,255,0.95); }
+        
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c7c7c7; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans" x-data="autoRegApp()" x-init="init()">
+
+    <!-- 顶部导航与全局筛选 -->
+    <header class="bg-white shadow-sm border-b border-gray-200 sticky-header">
+        <div class="w-full mx-auto px-4 py-2">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-indigo-900 inline-flex items-center gap-3" x-text="t('title')">AutoReg Global Compare</h1>
+                    <span class="inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded-full text-[11px] font-medium"
+                          :class="dbConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'">
+                        <span class="w-2 h-2 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-400'"></span>
+                        <span x-text="dbConnected ? (lang==='zh' ? '云端已连接' : 'Cloud Connected') : (lang==='zh' ? '离线模式' : 'Offline')"></span>
+                    </span>
+                </div>
+                
+                <!-- 视图切换器 -->
+                <div class="flex bg-gray-100 p-1 rounded-lg">
+                    <button x-text="t('matrix')" @click="currentView = 'matrix'" :class="currentView === 'matrix' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'" class="px-4 py-2 rounded-md text-sm font-medium transition">矩阵对比</button>
+                    <button x-text="t('item')" @click="currentView = 'item'" :class="currentView === 'item' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'" class="px-4 py-2 rounded-md text-sm font-medium transition">按条目查阅</button>
+                    <button x-text="t('country')" @click="currentView = 'country'" :class="currentView === 'country' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'" class="px-4 py-2 rounded-md text-sm font-medium transition">按市场查阅</button>
+                    <button @click="lang = lang === 'zh' ? 'en' : 'zh'"class="bg-gray-200 px-3 py-1 rounded text-sm"><span x-text="lang === 'zh' ? 'EN' : '中文'"></span></button>
+                </div>
+            </div>
+
+            <!-- 全局过滤器 -->
+            <div class="mt-4 flex flex-wrap gap-3 items-center">
+                <span x-text="t('filter')" class="text-sm font-semibold text-gray-600"></span>
+                
+                <!-- 组别筛选（下拉多选） -->
+<div class="relative" x-ref="groupFilterWrap">
+    <button @click="openGroupDropdown()"
+        class="border border-gray-300 rounded-md text-sm py-1.5 px-3 bg-white hover:bg-gray-50 flex items-center gap-1.5 min-w-[120px]">
+        <span x-text="selectedGroups.length === 0 ? (lang==='zh' ? '所有组别' : 'All Groups') : (lang==='zh' ? '已选 ' + selectedGroups.length + ' 个组别' : selectedGroups.length + ' Selected')"></span>
+        <svg class="w-3.5 h-3.5 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+    </button>
+</div>
+
+                <!-- 关键词搜索 -->
+                <div class="relative">
+                    <input type="text" x-model="searchQuery" :placeholder="t('search')" class="border-gray-300 border rounded-md text-sm py-1.5 pl-3 pr-8 focus:ring-indigo-500 focus:border-indigo-500 w-64">
+                    <svg class="w-4 h-4 text-gray-400 absolute right-2 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <div class="flex gap-2 ml-auto">
+    <!-- 版本信息 -->
+    <div class="text-xs text-gray-500 flex items-center mr-4">
+        <span x-text="t('currentVersion') + ' v' + db.meta.version"></span>
+        <span x-text="' | ' + t('lastEdit') + ': ' + db.meta.lastEditor + ' ' + db.meta.lastEditTime"></span>
+    </div>
+    
+    <!-- 编辑模式切换 -->
+    <button 
+    @click="toggleEditMode"
+    :disabled="isLocked"
+    x-show="currentView === 'matrix'"
+    class="bg-indigo-600 text-white px-3 py-1 rounded text-sm disabled:bg-gray-400 disabled:cursor-not-allowed">
+
+    <span x-text="editMode ? t('exitEdit') : t('edit')"></span>
+    <span x-if="isLocked" class="ml-2 text-xs bg-red-500 px-1.5 py-0.5 rounded">
+        <span x-text="lang==='zh' ? '已锁定' : 'Locked'"></span>
+    </span>
+
+</button>
+
+    <button x-show="editMode && currentView === 'matrix'" @click="exportData"
+        class="bg-blue-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '导出' : 'Export'"></span>
+    </button>
+
+    <button x-show="editMode && currentView === 'matrix'" @click="triggerImport"
+        class="bg-blue-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '导入' : 'Import'"></span>
+    </button>
+    <input type="file" id="importFile" accept=".json" class="hidden" @change="importData">
+
+    <button x-show="editMode" @click="triggerSave"
+        class="bg-green-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '保存' : 'Save'"></span>
+    </button>
+
+    <button x-show="editMode" @click="addItem"
+        class="bg-purple-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '+条目' : '+Item'"></span>
+    </button>
+
+    <button x-show="editMode" @click="addMarket"
+        class="bg-purple-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '+国家' : '+Market'"></span>
+    </button>
+    
+    <button x-show="editMode && currentView === 'matrix'" @click.stop="showHistoryModal()"
+        class="bg-gray-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '历史版本' : 'History'"></span>
+    </button>
+
+    <button x-show="editMode" @click="manageGroups = !manageGroups"
+        class="bg-purple-600 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '管理组别' : 'Manage Groups'"></span>
+    </button>
+
+    <button x-show="editMode" @click="showChangePwdModal = true"
+        class="bg-gray-500 text-white px-3 py-1 rounded text-sm">
+        <span x-text="lang==='zh' ? '修改密码' : 'Change Password'"></span>
+    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 组别管理界面 -->
+        <div x-show="manageGroups" class="bg-gray-50 border-t border-gray-200 py-4 px-4">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-semibold text-gray-700" x-text="lang==='zh' ? '组别管理' : 'Group Management'"></h3>
+                <button @click="manageGroups = false" class="text-xs text-gray-500 hover:text-gray-700">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <!-- 现有组别 -->
+            <div class="space-y-2 mb-4">
+                <template x-for="group in groups" :key="group.id">
+                    <div class="flex items-center gap-2">
+                        <input x-model="group.name.zh" class="text-sm border rounded px-2 py-1 flex-1" placeholder="中文名称" @blur="handleGroupTranslate('zh', group)" @input="dirty = true">
+                        <input x-model="group.name.en" class="text-sm border rounded px-2 py-1 flex-1" placeholder="English Name" @blur="handleGroupTranslate('en', group)" @input="dirty = true">
+                        <button @click="confirmDeleteGroup(group.id)" class="text-xs text-red-500 hover:text-red-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- 添加新组别 -->
+            <div class="flex items-center gap-2">
+                <input x-model="newGroupName.zh" class="text-sm border rounded px-2 py-1 flex-1" placeholder="中文名称" @blur="handleNewGroupTranslate('zh')" @input="dirty = true">
+                <input x-model="newGroupName.en" class="text-sm border rounded px-2 py-1 flex-1" placeholder="English Name" @blur="handleNewGroupTranslate('en')" @input="dirty = true">
+                <button @click="addGroup" class="bg-green-500 text-white text-xs px-2 py-1 rounded">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 组别筛选下拉面板（脱离header，避免被sticky裁剪） -->
+    <div x-show="groupDropdownOpen" x-transition.opacity
+         @click.away="groupDropdownOpen = false"
+         class="fixed bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[160px]"
+         :style="'z-index:9999;top:' + groupDropdownPos.top + 'px;left:' + groupDropdownPos.left + 'px'">
+        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm" @click="toggleGroupFilter('all'); $event.stopPropagation()">
+            <span class="w-4 h-4 rounded border flex items-center justify-center text-xs"
+                :class="selectedGroups.length === 0 ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-300'">
+                <span x-show="selectedGroups.length === 0">✓</span>
+            </span>
+            <span x-text="lang==='zh' ? '全部' : 'All'" class="font-medium"></span>
+        </label>
+        <div class="border-t border-gray-100 my-1"></div>
+        <template x-for="group in groups" :key="group.id">
+            <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm" @click="toggleGroupFilter(group.id); $event.stopPropagation()">
+                <span class="w-4 h-4 rounded border flex items-center justify-center text-xs"
+                    :class="selectedGroups.includes(group.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-300'">
+                    <span x-show="selectedGroups.includes(group.id)">✓</span>
+                </span>
+                <span x-text="getLangText(group.name)"></span>
+            </label>
+        </template>
+    </div>
+
+    <!-- 历史版本模态框 -->
+    <div x-show="showHistory"  
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]"  
+         x-cloak  >
+        <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-2xl" @click.away="showHistory = false">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 class="text-lg font-bold text-indigo-900" x-text="lang==='zh' ? '查看历史快照' : 'Version History'"></h3>
+                <button @click="showHistory = false" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="space-y-3">
+                <!-- 情况 A: 没历史记录 -->
+                <template x-if="!db.history || db.history.length === 0">
+                    <div class="text-gray-500 text-center py-10 bg-gray-50 rounded-lg border-2 border-dashed">
+                        <p x-text="lang==='zh' ? '当前没有已保存的历史版本' : 'No history snapshots found'"></p>
+                        <p class="text-xs mt-2 text-gray-400" x-text="lang==='zh' ? '提示：只有在编辑模式下点击“保存”按钮才会创建历史快照。' : 'Tip: Snapshots are created only when you click Save.'"></p>
+                    </div>
+                </template>
+                
+                <!-- 情况 B: 有历史记录 -->
+                <template x-if="db.history && db.history.length > 0">
+                    <template x-for="(entry, index) in db.history" :key="index">
+                        <div class="border rounded-lg p-4 hover:bg-indigo-50 flex justify-between items-center transition shadow-sm bg-white">
+                            <div>
+                                <div class="font-bold text-indigo-600" x-text="'Version v' + entry.version"></div>
+                                <div class="text-sm text-gray-700 font-medium">
+                                    <span x-text="entry.editor"></span>
+                                    <span class="text-xs text-gray-400 ml-2" x-text="'(' + entry.userId + ')'" x-show="entry.userId"></span>
+                                </div>
+                                <div class="text-xs text-gray-400" x-text="entry.time"></div>
+                            </div>
+                            <button @click.stop="restoreVersion(entry)" class="bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 rounded text-sm font-semibold transition">
+                                <span x-text="lang==='zh' ? '恢复此版本' : 'Restore'"></span>
+                            </button>
+                        </div>
+                    </template>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <main class="w-full px-6 py-4">
+
+        <!-- ================= 视图 1: 矩阵对比 (Matrix View) ================= -->
+        <div x-show="currentView === 'matrix'" x-transition.opacity>
+    
+    <div class="mb-4 flex justify-between items-end">
+        
+        <!-- 标题 -->
+        <h2 
+            class="text-xl font-semibold text-gray-800"
+            x-text="lang==='zh' ? '法规差异宏观矩阵' : 'Global Regulation Matrix'">
+        </h2>
+
+        <!-- 图例 -->
+        <p class="text-xs text-gray-500 hidden sm:block">
+            
+            <span x-text="lang==='zh' ? '图例：' : 'Legend:'"></span>
+
+            <!-- 不满足 -->
+            <span class="inline-flex items-center ml-2">
+                <span class="inline-block w-3 h-3 bg-red-100 border-l-4 border-red-500 mr-1"></span>
+                <span x-text="lang==='zh' ? '不满足' : 'Not Fullfill'"></span>
+            </span>
+
+            <!-- 开放点/需测试 -->
+            <span class="inline-flex items-center ml-2">
+                <span class="inline-block w-3 h-3 bg-yellow-100 border-l-4 border-yellow-500 mr-1"></span>
+                <span x-text="lang==='zh' ? '开放点/需测试' : 'Open/Need Test'"></span>
+            </span>
+
+            <!-- 满足 -->
+            <span class="inline-flex items-center ml-2">
+                <span class="inline-block w-3 h-3 bg-green-100 border-l-4 border-green-500 mr-1"></span>
+                <span x-text="lang==='zh' ? '满足' : 'Fullfill'"></span>
+            </span>
+
+        </p>
+    </div>
+
+    <div class="overflow-x-auto overflow-y-auto bg-white rounded-lg shadow border border-gray-200" style="height: calc(100vh - 160px); min-width: 800px;">
+        <table class="table-fixed w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50 sticky top-0 z-20">
+                <tr>
+
+                    <!-- 左表头 -->
+                    <th 
+                        class="w-64 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-30 shadow-r"
+                        x-text="lang==='zh' ? '法规条目 / 组别' : 'Regulation Item / Category'">
+                    </th>
+                            <template x-for="market in filteredMarkets" :key="market.code">
+    <th class="w-48 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
+
+    <!-- 展示模式 -->
+    <template x-if="!editMode">
+        <div>
+            <div x-text="getLangText(market.name) + ' (' + getLangText(market.standard) + ')'" class="mb-2"></div>
+            
+            <!-- 筛选按钮 -->
+            <div class="flex flex-col space-y-1">
+                <!-- 状态筛选 -->
+                <div class="flex justify-center gap-3">
+                    <!-- 不满足 -->
+                    <div class="flex items-center gap-1">
+                        <button 
+                            @click="toggleMarketFilter(market.code, 'not_fullfill')"
+                            class="w-4 h-4 border-l-2 border-red-500 bg-red-100"
+                            :class="isMarketFilterActive(market.code, 'not_fullfill') ? 'ring-2 ring-red-500' : ''"
+                            title="不满足"
+                        ></button>
+                        <span class="text-xs" x-text="marketStatusCounts[market.code]?.not_fullfill || 0"></span>
+                    </div>
+                    
+                    <!-- 开放点/需测试 -->
+                    <div class="flex items-center gap-1">
+                        <button 
+                            @click="toggleMarketFilter(market.code, 'open_need_test')"
+                            class="w-4 h-4 border-l-2 border-yellow-500 bg-yellow-100"
+                            :class="isMarketFilterActive(market.code, 'open_need_test') ? 'ring-2 ring-yellow-500' : ''"
+                            title="开放点/需测试"
+                        ></button>
+                        <span class="text-xs" x-text="marketStatusCounts[market.code]?.open_need_test || 0"></span>
+                    </div>
+                    
+                    <!-- 满足 -->
+                    <div class="flex items-center gap-1">
+                        <button 
+                            @click="toggleMarketFilter(market.code, 'fullfill')"
+                            class="w-4 h-4 border-l-2 border-green-500 bg-green-100"
+                            :class="isMarketFilterActive(market.code, 'fullfill') ? 'ring-2 ring-green-500' : ''"
+                            title="满足"
+                        ></button>
+                        <span class="text-xs" x-text="marketStatusCounts[market.code]?.fullfill || 0"></span>
+                    </div>
+                </div>
+                
+                <!-- 清除筛选 -->
+                <button 
+                    @click="clearMarketFilter(market.code)"
+                    class="text-xs text-gray-500 hover:text-gray-700 mt-1"
+                    x-show="hasMarketFilter(market.code)"
+                    x-text="lang==='zh' ? '清除筛选' : 'Clear Filter'"
+                ></button>
+            </div>
+        </div>
+    </template>
+
+    <!-- 编辑模式 -->
+    <template x-if="editMode">
+        <div class="space-y-1">
+            <input x-model="market.name[lang]"
+                class="border text-xs p-1 w-full"
+                @blur="handleMarketTranslate('name', market)"
+                @input="dirty = true">
+
+            <input x-model="market.standard[lang]"
+                class="border text-xs p-1 w-full"
+                @blur="handleMarketTranslate('standard', market)"
+                @input="dirty = true">
+
+            <button @click="confirmDeleteMarket(market.code)"
+                class="text-xs text-red-500 hover:text-red-700"
+                x-text="lang==='zh' ? '删除' : 'Delete'">
+        </div>
+    </template>
+
+</th>
+</template>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="(item, index) in filteredItems" :key="item.id">
+                            <tr class="hover:bg-gray-50 transition group">
+                                <!-- 左侧固定列：条目信息 -->
+                                <td class="w-64 h-24 px-4 py-3 whitespace-normal sticky left-0 bg-white z-10 border-r border-gray-100 group-hover:bg-gray-50 overflow-hidden">
+                                    <template x-if="!editMode">
+                                        <span class="inline-block bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded text-[10px] font-bold mr-1.5 mb-1" x-text="getGroupName(item.groupId)"></span>
+                                    </template>
+                                    <template x-if="editMode">
+                                        <select x-model="item.groupId" class="text-[10px] border rounded px-1 py-0.5 mb-1 font-bold"
+                                            @change="dirty = true">
+                                            <template x-for="group in groups" :key="group.id">
+                                                <option :value="group.id" x-text="getLangText(group.name)"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <template x-if="!editMode">
+    <div class="text-sm font-bold text-indigo-700" x-text="getLangText(item.title)"></div>
+</template>
+
+<template x-if="editMode">
+    <input x-model="item.title[lang]"
+        class="border text-sm p-1 w-full mb-1"
+        @blur="handleItemTranslate('title', item)"
+        @input="dirty = true">
+</template>
+
+<template x-if="!editMode">
+    <div class="text-xs font-mono text-gray-500 mt-0.5" x-text="item.regCode"></div>
+</template>
+
+<template x-if="editMode">
+    <input x-model="item.regCode"
+        class="border text-xs p-1 w-full mt-1"
+        @input="dirty = true">
+</template>
+                                    <button x-show="editMode"
+    @click="confirmDeleteItem(item.id)"
+    class="text-xs text-red-500 hover:text-red-700 mt-1"
+    x-text="lang==='zh' ? '删除条目' : 'Delete Item'">
+                                    <button 
+    @click="toggleDetail(index)" 
+    class="text-xs text-indigo-500 hover:text-indigo-700 mt-2 font-medium flex items-center">
+
+    <span 
+        x-text="
+            expandedRow === index 
+            ? (lang==='zh' ? '收起详情' : 'Collapse') 
+            : (lang==='zh' ? '展开对比详情' : 'Expand Details')
+        ">
+    </span>
+
+    <svg 
+        class="w-3 h-3 ml-1 transform transition-transform"
+        :class="expandedRow === index ? 'rotate-180' : ''"
+        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+    </svg>
+</button>
+                                </td>
+                                
+                                <!-- 动态列：各市场状态 -->
+                                <template x-for="market in filteredMarkets" :key="market.code">
+                                    <td class="w-48 h-24 px-4 py-3 text-center align-top cursor-pointer hover:bg-gray-100 transition overflow-hidden" 
+                                        @click="openModal(item, market)"
+                                        :class="getCellClass(item, market.code)">
+                                        <div class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold mb-2"
+                                             :class="getBadgeColor(item, market.code)">
+                                            <span x-text="getLangText(getShortStatus(item, market.code))"></span>
+                                        </div>
+                                        <div class="text-[11px] text-gray-600 leading-tight font-medium truncate" x-text="getLangText(getSummary(item, market.code))"></div>
+                                        <div class="text-[10px] text-gray-400 mt-1 truncate" x-text="getLangText(getTechHighlight(item, market.code))"></div>
+                                    </td>
+                                </template>
+                            </tr>
+                            <!-- 展开的详情行 -->
+                            <tr x-show="expandedRow === index" x-collapse class="bg-gray-50">
+                                <td :colspan="filteredMarkets.length + 1" class="px-6 py-6">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <template x-for="market in filteredMarkets" :key="market.code">
+                                            <div class="bg-white p-4 rounded border border-gray-200 shadow-sm relative overflow-hidden">
+                                                <div class="absolute top-0 left-0 w-1 h-full" :class="getBadgeColor(item, market.code).replace('text-', 'bg-').replace('white', '500')"></div>
+                                                <h4 class="font-bold text-sm text-gray-800 mb-2 pl-2" x-text="getLangText(market.name) + (lang==='zh' ? ' 深度解读' : ' Detail')"></h4>
+                                                <p class="text-xs text-gray-600 leading-relaxed mb-3 pl-2" x-text="getLangText(getFullDetail(item, market.code))"></p>
+                                                <div class="pl-2 pt-2 border-t border-gray-100">
+                                                    <span class="text-[10px] text-gray-400 block mb-1" x-text="lang==='zh' ? '关键测试参数:' : 'Key Test Parameters:'"></span>
+                                                    <span class="text-[11px] text-indigo-600 font-mono bg-indigo-50 px-1.5 py-0.5 rounded" x-text="getLangText(getTestParam(item, market.code))"></span>
+                                                </div>
+                                                <div x-show="item.details[market.code]?.standardFiles?.length" class="pl-2 pt-2 border-t border-gray-100 mt-2">
+                                                    <span class="text-[10px] text-gray-400 block mb-1" x-text="lang==='zh' ? '标准原文:' : 'Standard Docs:'"></span>
+                                                    <template x-for="(file, fIdx) in item.details[market.code]?.standardFiles || []" :key="fIdx">
+                                                        <button @click="openFilePreview(file)" class="inline-block text-[10px] text-indigo-500 hover:text-indigo-700 underline mr-2" x-text="file.name"></button>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ================= 视图 2: 条目详情 (Item-Centric View) ================= -->
+        <div x-show="currentView === 'item'" x-cloak>
+            <h2 class="text-xl font-semibold text-gray-800 mb-2" x-text="lang==='zh' ? '按法规条目深度解读' : 'In-Depth Interpretation by Regulation Items'"></h2>
+            <p class="text-sm text-gray-500 mb-6" x-text="lang==='zh' ? '针对具体技术点，横向对比全球主要市场的合规要求差异。' : 'Compare compliance requirement differences across major global markets for specific technical points.'"></p>
+            
+            <div class="space-y-8">
+                <template x-for="item in filteredItems" :key="item.id">
+                    <div class="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+                        <!-- 卡片头部 -->
+                        <div class="bg-gradient-to-r from-indigo-50 to-white px-6 py-5 border-b border-indigo-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="text-xs font-bold text-indigo-800 bg-indigo-200 px-2 py-0.5 rounded" x-text="getLangText(getGroupName(item.groupId))"></span>
+                                    <span class="text-xs font-mono text-gray-500" x-text="getLangText(item.regCode)"></span>
+                                </div>
+                                <h3 class="text-lg font-bold text-gray-900" x-text="getLangText(item.title)"></h3>
+                            </div>
+                            <button @click="exportItemReport(item)" class="text-sm text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-md transition font-medium" x-text="lang==='zh' ? '导出该条目对比报告' : 'Export Item Comparison Report'"></button>
+                        </div>
+                        
+                        <!-- 卡片内容：网格布局 -->
+                        <div class="p-6 bg-gray-50">
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                                <template x-for="market in markets" :key="market.code">
+                                    <div class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition duration-200 flex flex-col h-full">
+                                        <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-lg">
+                                            <div class="flex items-center gap-2">
+                                                <span class="w-2 h-2 rounded-full" :class="getDotColor(item, market.code)"></span>
+                                                <h4 class="font-bold text-gray-800" x-text="getLangText(market.name)"></h4>
+                                            </div>
+                                            <span class="px-2 py-0.5 text-[10px] uppercase font-bold rounded border" 
+                                                  :class="getBadgeBorderClass(item, market.code)"
+                                                  x-text="getLangText(getStatusLabel(item, market.code))"></span>
+                                        </div>
+                                        <div class="p-4 flex-grow">
+                                            <div class="mb-3">
+                                                <span class="text-[10px] text-gray-400 uppercase font-semibold" x-text="lang==='zh' ? '对比结果' : 'Comparison Result'"></span>
+                                                <p class="text-sm text-gray-700 mt-1 leading-snug" x-text="getLangText(getSummary(item, market.code))"></p>
+                                            </div>
+                                            <div class="mb-3">
+                                                <span class="text-[10px] text-gray-400 uppercase font-semibold" x-text="lang==='zh' ? '详细解读' : 'Detailed Interpretation'"></span>
+                                                <p class="text-xs text-gray-600 mt-1 leading-relaxed" x-text="getLangText(getFullDetail(item, market.code))"></p>
+                                            </div>
+                                            <div class="mb-3">
+                                                <span class="text-[10px] text-gray-400 uppercase font-semibold" x-text="lang==='zh' ? '特殊要求' : 'Special Requirements'"></span>
+                                                <p class="text-xs text-gray-600 mt-1 leading-relaxed" x-text="getLangText(getSpecialRequirement(item, market.code))"></p>
+                                            </div>
+                                            <div class="bg-gray-50 p-2 rounded text-xs font-mono text-gray-600 border border-gray-100">
+                                                <span class="block text-[10px] text-gray-400 mb-0.5" x-text="lang==='zh' ? '测试参数' : 'Test Parameters'"></span>
+                                                <span x-text="getLangText(getTestParam(item, market.code))"></span>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- ================= 视图 3: 市场概览 (Market-Centric View) ================= -->
+        <div x-show="currentView === 'country'" x-cloak>
+            <h2 class="text-xl font-semibold text-gray-800 mb-2" x-text="lang==='zh' ? '按目标市场合规概览' : 'Target Market Compliance Overview'"></h2>
+            <p class="text-sm text-gray-500 mb-6" x-text="lang==='zh' ? '快速了解特定市场的准入壁垒和重点监管领域。' : 'Quickly understand market access barriers and key regulatory areas for specific markets.'"></p>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <template x-for="market in markets" :key="market.code">
+                    <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden flex flex-col">
+                        <div class="bg-indigo-900 px-6 py-6 text-white relative overflow-hidden">
+                            <div class="relative z-10">
+                                <h3 class="text-2xl font-bold" x-text="getLangText(market.name)"></h3>
+                                <p class="text-indigo-200 text-sm mt-1 font-mono" x-text="getLangText(market.standard)"></p>
+                                <p class="text-indigo-100 text-xs mt-3 leading-relaxed opacity-90" x-text="getLangText(market.description)"></p>
+                                <div class="flex items-center gap-3 mt-4">
+                                    <button @click="toggleCountryFilter(market.code, 'not_fullfill')"
+                                        :class="countryViewFilters[market.code] === 'not_fullfill' ? 'ring-2 ring-white ring-offset-1 ring-offset-indigo-900' : 'opacity-80 hover:opacity-100'"
+                                        class="flex items-center gap-1 bg-red-500 rounded-full px-2.5 py-0.5 text-xs font-bold transition">
+                                        <span class="w-2 h-2 bg-white rounded-full"></span>
+                                        <span x-text="marketStatusCounts[market.code]?.not_fullfill || 0"></span>
+                                    </button>
+                                    <button @click="toggleCountryFilter(market.code, 'open_need_test')"
+                                        :class="countryViewFilters[market.code] === 'open_need_test' ? 'ring-2 ring-white ring-offset-1 ring-offset-indigo-900' : 'opacity-80 hover:opacity-100'"
+                                        class="flex items-center gap-1 bg-yellow-500 rounded-full px-2.5 py-0.5 text-xs font-bold transition">
+                                        <span class="w-2 h-2 bg-white rounded-full"></span>
+                                        <span x-text="marketStatusCounts[market.code]?.open_need_test || 0"></span>
+                                    </button>
+                                    <button @click="toggleCountryFilter(market.code, 'fullfill')"
+                                        :class="countryViewFilters[market.code] === 'fullfill' ? 'ring-2 ring-white ring-offset-1 ring-offset-indigo-900' : 'opacity-80 hover:opacity-100'"
+                                        class="flex items-center gap-1 bg-green-500 rounded-full px-2.5 py-0.5 text-xs font-bold transition">
+                                        <span class="w-2 h-2 bg-white rounded-full"></span>
+                                        <span x-text="marketStatusCounts[market.code]?.fullfill || 0"></span>
+                                    </button>
+                                    <button x-show="countryViewFilters[market.code]" @click="toggleCountryFilter(market.code, null)"
+                                        class="text-indigo-300 hover:text-white text-xs underline ml-1" x-text="lang==='zh' ? '清除' : 'Clear'"></button>
+                                </div>
+                            </div>
+                            <!-- 装饰背景 -->
+                            <div class="absolute right-0 top-0 h-full w-32 bg-indigo-800 opacity-50 transform skew-x-12 translate-x-10"></div>
+                        </div>
+                        
+                        <div class="p-6 flex-grow">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2" x-text="lang==='zh' ? '关键合规要求' : 'Key Compliance Requirements'"></h4>
+                            <ul class="space-y-4">
+                                <template x-for="highlight in getMarketHighlights(market.code)" :key="highlight.itemId">
+                                    <li class="flex gap-3 items-start">
+                                        <span class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white mt-0.5"
+                                              :class="getBadgeColor(findItem(highlight.itemId), market.code)">
+                                            !
+                                        </span>
+                                        <div>
+                                            <span class="block text-sm font-bold text-gray-800" x-text="getLangText(findItem(highlight.itemId).title)"></span>
+                                            <p class="text-xs text-gray-600 mt-1 leading-snug" x-text="getLangText(highlight.text)"></p>
+                                        </div>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                        
+                        <div class="p-4 bg-gray-50 border-t border-gray-200">
+                            <button @click="openMarketExportModal(market)" class="w-full py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-indigo-300 transition shadow-sm flex justify-center items-center gap-2">
+                                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                <span x-text="lang==='zh' ? '导出' : 'Export'"></span> <span x-text="getLangText(market.name)"></span> <span x-text="lang==='zh' ? '完整准入指南' : 'Complete Entry Guide'"></span>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+    </main>
+
+<!-- 市场导出弹窗 -->
+<div x-show="showMarketExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000]" x-cloak>
+    <div class="bg-white rounded-lg p-6 max-w-md w-full">
+        <h3 class="text-lg font-bold text-gray-900 mb-4" x-text="lang==='zh' ? '选择导出格式' : 'Select Export Format'"></h3>
+        <div class="space-y-3">
+            <button @click="exportMarketContent('txt')" class="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span x-text="lang==='zh' ? '导出为 TXT 文件' : 'Export as TXT File'"></span>
+            </button>
+            <button @click="exportMarketContent('pdf')" class="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                <span x-text="lang==='zh' ? '导出为 PDF 文件' : 'Export as PDF File'"></span>
+            </button>
+            <button @click="showMarketExportModal = false" class="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700" x-text="lang==='zh' ? '取消' : 'Cancel'"></button>
+        </div>
+    </div>
+</div>
+
+<!-- 用户信息弹窗 -->
+<div x-show="showUserModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10001]" x-cloak>
+    <div class="bg-white rounded-lg p-6 w-96 shadow-xl">
+        <h3 class="text-lg font-bold mb-4">
+            <span x-text="lang==='zh' ? '保存前填写信息' : 'Enter Your Info'"></span>
+        </h3>
+
+        <input
+            x-model="userInfo.name"
+            placeholder="姓名 / Name"
+            class="w-full border p-2 mb-3 text-sm">
+
+        <input
+            x-model="userInfo.userId"
+            placeholder="用户ID / User ID"
+            class="w-full border p-2 mb-4 text-sm">
+
+        <div class="flex justify-end gap-2">
+            <button @click="showUserModal=false"
+                class="px-3 py-1 text-sm border rounded"
+                x-text="lang==='zh' ? '取消' : 'Cancel'">
+            </button>
+
+            <button @click="confirmSaveWithUser"
+                class="px-3 py-1 text-sm bg-indigo-600 text-white rounded"
+                x-text="lang==='zh' ? '确认保存' : 'Confirm Save'">
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 密码验证弹窗 -->
+<div x-show="showPasswordModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10002]" x-cloak>
+    <div class="bg-white rounded-lg p-6 w-96 shadow-xl">
+        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            <span x-text="lang==='zh' ? '编辑模式验证' : 'Edit Mode Verification'"></span>
+        </h3>
+        <p class="text-sm text-gray-500 mb-4" x-text="lang==='zh' ? '请输入编辑密码以进入编辑模式' : 'Enter the edit password to enter edit mode'"></p>
+        <input type="password" x-model="editPasswordInput" @keydown.enter="verifyEditPassword()"
+            class="w-full border p-2 mb-3 text-sm rounded" :placeholder="lang==='zh' ? '请输入密码' : 'Enter password'">
+        <p x-show="passwordError" class="text-red-500 text-xs mb-3" x-text="lang==='zh' ? '密码错误，请重试' : 'Incorrect password, please try again'"></p>
+        <div class="flex justify-end gap-2">
+            <button @click="showPasswordModal = false; editPasswordInput = ''; passwordError = false"
+                class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50" x-text="lang==='zh' ? '取消' : 'Cancel'"></button>
+            <button @click="verifyEditPassword()"
+                class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700" x-text="lang==='zh' ? '确认' : 'Confirm'"></button>
+        </div>
+    </div>
+ </div>
+
+<!-- 修改密码弹窗 -->
+<div x-show="showChangePwdModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10002]" x-cloak>
+    <div class="bg-white rounded-lg p-6 w-96 shadow-xl">
+        <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+            <span x-text="lang==='zh' ? '修改编辑密码' : 'Change Edit Password'"></span>
+        </h3>
+        <input type="password" x-model="changePwdOld" class="w-full border p-2 mb-3 text-sm rounded" :placeholder="lang==='zh' ? '旧密码' : 'Old password'">
+        <input type="password" x-model="changePwdNew" class="w-full border p-2 mb-3 text-sm rounded" :placeholder="lang==='zh' ? '新密码' : 'New password'">
+        <input type="password" x-model="changePwdConfirm" class="w-full border p-2 mb-3 text-sm rounded" :placeholder="lang==='zh' ? '确认新密码' : 'Confirm new password'">
+        <p x-show="changePwdError" class="text-red-500 text-xs mb-3" x-text="changePwdError"></p>
+        <div class="flex justify-end gap-2">
+            <button @click="showChangePwdModal = false; changePwdOld=''; changePwdNew=''; changePwdConfirm=''; changePwdError=''"
+                class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50" x-text="lang==='zh' ? '取消' : 'Cancel'"></button>
+            <button @click="handleChangePassword()"
+                class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700" x-text="lang==='zh' ? '确认修改' : 'Confirm'"></button>
+        </div>
+    </div>
+</div>
+
+    <!-- 弹窗：详细对比 (Modal) -->
+    <div x-show="modalOpen && activeItem && activeMarket" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div x-show="modalOpen && activeItem && activeMarket" x-transition.opacity class="fixed inset-0 bg-gray-900 bg-opacity-60 transition-opacity" @click="modalOpen = false"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div x-show="modalOpen && activeItem && activeMarket" x-transition.scale class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+                <div class="bg-white px-6 pt-6 pb-4">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 class="text-lg leading-7 font-bold text-gray-900" id="modal-title">
+                                <span x-text="getLangText(activeItem?.title)"></span>
+                            </h3>
+                            <p class="text-sm text-gray-500 mt-1" x-text="getLangText(activeItem?.regCode)"></p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @click="modalOpen = false" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-indigo-50 rounded-lg p-5 mb-6 border border-indigo-100">
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-2 py-1 text-xs font-bold rounded bg-white text-indigo-700 border border-indigo-200" x-text="getLangText(activeMarket?.name)"></span>
+                            <span class="text-sm font-semibold text-indigo-900" x-text="lang==='zh'?'专项解读':'Special Interpretation'"></span>
+                        </div>
+                        <div class="flex items-start gap-3 mb-2">
+                            <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-2 w-16 shrink-0" x-text="lang==='zh'?'解读说明':'Interpretation'"></label>
+                            <textarea
+x-model="activeItem.details[activeMarket.code].full[lang]"
+:disabled="!editMode"
+class="w-full border p-2 text-sm resize-none modal-textarea"
+data-min-h="40" data-max-h="120"
+@blur="handleTranslateDebounced('full')"
+@input="dirty = true; autoResize($el, 40, 9999)"
+x-init="$nextTick(() => { autoResize($el, 40, 9999) })">
+</textarea>
+                        </div>
+
+<div class="flex items-center gap-3 mb-2">
+<label class="text-xs font-semibold text-indigo-600 whitespace-nowrap w-16 shrink-0" x-text="lang==='zh'?'对比结果':'Comparison'"></label>
+<input
+    x-model="activeItem.details[activeMarket.code].summary[lang]"
+    :disabled="!editMode"
+    class="w-full border p-2 text-sm"
+@blur="handleTranslateDebounced('summary')"
+@input="dirty = true">
+</div>
+
+<div class="flex items-center gap-3 mb-2">
+<label class="text-xs font-semibold text-indigo-600 whitespace-nowrap w-16 shrink-0" x-text="lang==='zh'?'测试参数':'Test Param'"></label>
+<input
+    x-model="activeItem.details[activeMarket.code].test[lang]"
+    :disabled="!editMode"
+    class="w-full border p-2 text-sm"
+@blur="handleTranslateDebounced('test')"
+@input="dirty = true">
+</div>
+
+<div class="flex items-center gap-3 mb-2">
+<label class="text-xs font-semibold text-indigo-600 whitespace-nowrap w-16 shrink-0" x-text="lang==='zh'?'合规状态':'Status'"></label>
+<select
+    x-model="activeItem.details[activeMarket.code].status"
+    :disabled="!editMode"
+    class="w-full border p-2 text-sm"
+    @change="dirty = true">
+    <option value="not_fullfill" class="bg-red-100 text-red-700" x-text="lang==='zh'?'不满足':'Not Fullfill'"></option>
+    <option value="open_need_test" class="bg-yellow-100 text-yellow-700" x-text="lang==='zh'?'开放点/需测试':'Open/Need Test'"></option>
+    <option value="fullfill" class="bg-green-100 text-green-700" x-text="lang==='zh'?'满足':'Fullfill'"></option>
+</select>
+</div>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                <span class="text-xs font-bold text-gray-500 uppercase" x-text="lang==='zh' ? '标准原文' : 'Standard Documents'"></span>
+                            </div>
+                            <span x-show="activeItem.details[activeMarket.code]?.standardFiles?.length" class="text-[10px] text-gray-400" x-text="'(' + (activeItem.details[activeMarket.code]?.standardFiles?.length || 0) + ' ' + (lang==='zh' ? '个文件' : 'files') + ')'"></span>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <template x-for="(file, fIdx) in activeItem.details[activeMarket.code]?.standardFiles || []" :key="fIdx">
+                                <div class="flex items-center gap-2 bg-white rounded px-2.5 py-1.5 text-xs border border-gray-100">
+                                    <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                    <span class="truncate flex-1 text-gray-700" x-text="file.name || 'File'"></span>
+                                    <button @click="openFilePreview(file)" class="text-blue-500 hover:text-blue-700 flex-shrink-0 font-medium" x-text="lang==='zh' ? '预览' : 'View'"></button>
+                                    <button x-show="editMode" @click="removeStandardFile(activeItem, activeMarket.code, fIdx)" class="text-red-500 hover:text-red-700 flex-shrink-0 font-medium" x-text="lang==='zh' ? '删除' : 'Del'"></button>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div x-show="!activeItem.details[activeMarket.code]?.standardFiles?.length" class="text-xs text-gray-400 py-2 text-center">
+                            <span x-text="lang==='zh' ? '暂无标准原文' : 'No documents uploaded'"></span>
+                        </div>
+
+                        <div x-show="editMode" class="mt-2">
+                            <input type="file" :id="'standardFileModal_' + activeItem.id + '_' + activeMarket.code" accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.svg,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" class="hidden" @change="uploadStandardFile(activeItem, activeMarket.code, $event)">
+                            <button @click="document.getElementById('standardFileModal_' + activeItem.id + '_' + activeMarket.code).click()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                <span x-text="lang==='zh' ? '添加文件' : 'Add File'"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+    <!-- 左：国标 -->
+    <div class="border rounded-lg p-4 bg-gray-50">
+        <h4 class="text-xs font-bold text-gray-500 uppercase mb-2" x-text="lang==='zh'?'国标':'National Standard'"></h4>
+
+        <!-- 查看模式 -->
+        <template x-if="!editMode">
+            <div class="flex items-start gap-3">
+                <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-1 w-16 shrink-0" x-text="lang==='zh'?'国标要求':'Nat. Std.'"></label>
+                <div class="text-sm text-gray-600 max-h-[100px] overflow-y-auto"
+                   x-text="getLangText(activeItem?.globalNote) || (lang==='zh'?'通常基于 UN Regulation (ECE) 或 ISO 标准，要求半径大于 2.5mm 的凸出物需进行动态测试。':'Generally based on UN Regulation (ECE) or ISO standards, requiring dynamic testing for protrusions with radius greater than 2.5mm.')"></div>
+            </div>
+        </template>
+
+        <!-- 编辑模式 -->
+        <template x-if="editMode">
+            <div class="flex items-start gap-3">
+                <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-2 w-16 shrink-0" x-text="lang==='zh'?'国标要求':'Nat. Std.'"></label>
+                <textarea
+                    x-model="activeItem.globalNote[lang]"
+                    class="w-full border p-2 text-sm resize-none modal-textarea"
+                    data-min-h="40" data-max-h="100"
+                    @blur="handleGlobalNoteTranslate(activeItem)"
+                    @input="dirty = true; autoResize($el, 40, 9999)"
+                    x-init="$nextTick(() => { autoResize($el, 40, 9999) })">
+                </textarea>
+            </div>
+        </template>
+    </div>
+
+    <!-- 右：国家特殊 -->
+    <div class="border rounded-lg p-4 bg-gray-50">
+
+        <h4 class="text-xs font-bold text-gray-500 uppercase mb-2"
+            x-text="getLangText(activeMarket?.name) + (lang==='zh' ? ' 法规特殊项' : ' Special Regulatory Items')"></h4>
+
+        <!-- 查看模式 -->
+        <template x-if="!editMode">
+            <div class="space-y-2">
+                <div class="flex items-start gap-3">
+                    <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-1 w-16 shrink-0" x-text="lang==='zh'?'影响范围':'Impact'"></label>
+                    <div class="text-sm text-gray-600 font-mono text-xs max-h-[80px] overflow-y-auto"
+                         x-text="getLangText(activeItem && activeMarket ? getLangText(activeItem.details[activeMarket.code].impact) : '')"></div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-1 w-16 shrink-0" x-text="lang==='zh'?'差异点':'Diff.'"></label>
+                    <div class="text-xs text-gray-500 max-h-[80px] overflow-y-auto"
+                         x-text="getLangText(activeItem && activeMarket ? getLangText(getSpecialRequirement(activeItem, activeMarket.code)) : '')"></div>
+                </div>
+            </div>
+        </template>
+
+        <!-- 编辑模式 -->
+        <template x-if="editMode">
+            <div class="space-y-2">
+                <div class="flex items-start gap-3">
+                    <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-2 w-16 shrink-0" x-text="lang==='zh'?'影响范围':'Impact'"></label>
+                    <textarea
+                        x-model="activeItem.details[activeMarket.code].impact[lang]"
+                        class="w-full border p-2 text-xs resize-none modal-textarea"
+                        data-min-h="40" data-max-h="80"
+                        @input="dirty = true; autoResize($el, 40, 9999)"
+                        x-init="$nextTick(() => { autoResize($el, 40, 9999) })">
+                    </textarea>
+                </div>
+                <div class="flex items-start gap-3">
+                    <label class="text-xs font-semibold text-indigo-600 whitespace-nowrap pt-2 w-16 shrink-0" x-text="lang==='zh'?'差异点':'Diff.'"></label>
+                    <textarea
+                        x-model="activeItem.details[activeMarket.code].special[lang]"
+                        class="w-full border p-2 text-xs resize-none modal-textarea"
+                        data-min-h="40" data-max-h="80"
+                        @blur="handleTranslateDebounced('special')"
+                        @input="dirty = true; autoResize($el, 40, 9999)"
+                        x-init="$nextTick(() => { autoResize($el, 40, 9999) })">
+                    </textarea>
+                </div>
+            </div>
+        </template>
+
+    </div>
+</div>
+                <div class="bg-gray-50 px-6 py-4 sm:flex sm:flex-row-reverse border-t border-gray-100">
+                    <button @click="modalOpen = false" type="button" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                        关闭
+                    </button>
+                    <button 
+@click="showExportOptions()"
+type="button"
+class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+导出弹窗内容
+</button>
+
+<!-- 导出选项模态框 -->
+<div x-show="showExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000]" x-cloak>
+    <div class="bg-white rounded-lg p-6 max-w-md w-full">
+        <h3 class="text-lg font-bold text-gray-900 mb-4" x-text="lang==='zh' ? '选择导出格式' : 'Select Export Format'"></h3>
+        <div class="space-y-3">
+            <button @click="exportModalContent('txt')" class="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span x-text="lang==='zh' ? '导出为 TXT 文件' : 'Export as TXT File'"></span>
+            </button>
+            <button @click="exportModalContent('pdf')" class="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                <span x-text="lang==='zh' ? '导出为 PDF 文件' : 'Export as PDF File'"></span>
+            </button>
+            <button @click="showExportModal = false" class="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700" x-text="lang==='zh' ? '取消' : 'Cancel'"></button>
+        </div>
+    </div>
+</div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!-- 用户信息弹窗 -->
+<div x-show="showUserModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" x-cloak>
+    <div class="bg-white rounded-lg p-6 w-96 shadow-xl">
+        <h3 class="text-lg font-bold mb-4">
+            <span x-text="lang==='zh' ? '保存前填写信息' : 'Enter Your Info'"></span>
+        </h3>
+
+        <input
+            x-model="userInfo.name"
+            placeholder="姓名 / Name"
+            class="w-full border p-2 mb-3 text-sm">
+
+        <input
+            x-model="userInfo.userId"
+            placeholder="用户ID / User ID"
+            class="w-full border p-2 mb-4 text-sm">
+
+        <div class="flex justify-end gap-2">
+            <button @click="showUserModal=false"
+                class="px-3 py-1 text-sm border rounded"
+                x-text="lang==='zh' ? '取消' : 'Cancel'">
+            </button>
+
+            <button @click="confirmSaveWithUser"
+                class="px-3 py-1 text-sm bg-indigo-600 text-white rounded"
+                x-text="lang==='zh' ? '确认保存' : 'Confirm Save'">
+            </button>
+        </div>
+    </div>
+</div>
+
+
+
+    <script>
+        const SUPABASE_URL = 'https://tnkkmwsyptknybxuiiin.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRua2ttd3N5cHRrbnlieHVpaWluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMDc4ODksImV4cCI6MjA5Mzg4Mzg4OX0.yD2ab4C_Q31h3wjP1v75L9EmeeEYCTm6xDFhIKRyCzU';
+        
+        function getSupabaseClient() {
+            if (typeof window.supabase !== 'undefined' && window.supabase.createClient) {
+                return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            }
+            return null;
+        }
+        
+        function autoRegApp() {
+            
+            return {
+                i18n: {
+    zh: {
+        title: "全球汽车法规差异化对比平台",
+        matrix: "矩阵对比",
+        item: "按条目查阅",
+        country: "按市场查阅",
+        filter: "组别",
+        allGroup: "所有组别",
+        search: "搜索法规条目",
+        edit: "编辑模式",
+        exitEdit: "退出编辑",
+        currentVersion: "当前版本",
+        lastEdit: "最后编辑"
+    },
+    en: {
+        title: "Global Automotive Regulation Comparison Platform",
+        matrix: "Matrix View",
+        item: "Item View",
+        country: "Market View",
+        filter: "Filters",
+        allGroup: "All Categories",
+        search: "Search regulations",
+        edit: "Edit Mode",
+        exitEdit: "Exit Edit",
+        currentVersion: "Current Version",
+        lastEdit: "Last Edit"
+    }
+},
+t(key){
+    return this.i18n[this.lang][key] || key
+},
+                editMode:false,
+                currentView: 'matrix', 
+                dbConnected: false,
+                selectedGroups: [],
+                groupDropdownOpen: false,
+                groupDropdownPos: { top: 0, left: 0 },
+                searchQuery: '',
+                expandedRow: null,
+                modalOpen: false,
+                activeItem: null,
+                activeMarket: null,
+                manageGroups: false,
+                newGroupName: { zh: '', en: '' },
+                dirty: false,
+                originalData: null,
+                showHistory: false,
+                isLocked: false,
+                lockRefreshInterval: null,
+                currentUser: 'User_' + Date.now(),
+                showExportModal: false,
+                userInfo: {
+                    name: '',
+                    userId: ''
+                },
+                showUserModal: false,
+                showPasswordModal: false,
+                editPasswordInput: '',
+                passwordError: false,
+                editPasswordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',
+                originalPasswordHash: null,
+                 showChangePwdModal: false,
+                 changePwdOld: '',
+                 changePwdNew: '',
+                 changePwdConfirm: '',
+                 changePwdError: '',
+                exitAfterSave: false,
+                // 市场导出弹窗
+                showMarketExportModal: false,
+                exportingMarket: null,
+                // 市场筛选状态
+                marketFilters: {},
+                countryViewFilters: {},
+                // 市场状态计数
+                marketStatusCounts: {},
+                
+                // 数据库结构
+                db: {
+                    meta: {
+                        version: 1,
+                        lastEditor: '',
+                        lastEditTime: new Date().toLocaleString(),
+                        editing: null // { user: string, startTime: string, expire: number }
+                    },
+                    history: []
+                },
+
+                // 模拟数据：主要汽车市场
+                markets: [
+                   { code: 'CN', name:{ zh:'中国', en:'China' }, standard: { zh:'GB标准', en:'GB Standards' }, description: { zh:'强制性国家标准 (GB)，部分等效采用 ECE 法规，但在行人保护和内饰细节上有本土化加严趋势。', en:'Mandatory National Standards (GB), partially equivalent to ECE regulations, but with localized tightening trends in pedestrian protection and interior details.' } },
+                    { code: 'EU', name:{ zh:'欧盟', en:'Europe' }, standard: { zh:'UN/ECE法规', en:'UN/ECE Regulations' }, description: { zh:'采用联合国欧洲经济委员会 (UNECE) 法规，全球最严格的行人保护和被动安全标准之一，型式认证互认。', en:'Adopting United Nations Economic Commission for Europe (UNECE) regulations, one of the strictest pedestrian protection and passive safety standards globally, with mutual recognition of type approval.' } },
+                    { code: 'US', name:{ zh:'美国', en:'United States' }, standard: { zh:'FMVSS', en:'FMVSS' }, description: { zh:'联邦机动车安全标准 (FMVSS)，自我认证模式。测试假人、碰撞速度和评价指标与 ECE 有显著差异。', en:'Federal Motor Vehicle Safety Standards (FMVSS), self-certification model. Test dummies, collision speeds, and evaluation criteria differ significantly from ECE.' } },
+                    { code: 'JP', name:{ zh:'日本', en:'Japan' }, standard: { zh:'安全法规', en:'Safety Regulations' }, description: { zh:'日本保安基准，高度协调于 UN Regulation，但在微型车 (K-Car) 和部分行人保护测试上有独特要求。', en:'Japan Safety Standards, highly coordinated with UN Regulations, but with unique requirements for subcompact vehicles (K-Car) and certain pedestrian protection tests.' } }
+                ],
+
+                // 模拟数据：法规组别
+                groups: [
+                    { id: 'EKAI', name: { zh: 'EKAI', en: 'EKAI' } },
+                    { id: 'EKA', name: { zh: 'EKA', en: 'EKA' } },
+                    { id: 'EKAS', name: { zh: 'EKAS', en: 'EKAS' } },
+                    { id: 'EKAA', name: { zh: 'EKAA', en: 'EKAA' } },
+                    { id: 'EKAC', name: { zh: 'EKAC', en: 'EKAC' } }
+                ],
+
+                // 模拟数据：法规条目 (核心数据结构 - 已替换为汽车领域内容)
+                items: [
+                    {
+                        id: 201,
+                        groupId: 'EKAI',
+                        regCode: 'GB 11552 / FMVSS 201 / ECE R21',
+                        title: {zh: '内部凸出物', en: 'Interior Projections'},
+                        details: {
+                            CN: { status: 'fullfill',   summary: { zh:'等效 ECE R21', en:'Equivalent to ECE R21' }, full: { zh:'GB 11552 基本等效采用 ECE R21。要求乘员舱内无危险锐边，凸出物高度超过规定需进行头部碰撞测试。', en:'GB 11552 is basically equivalent to ECE R21. It requires no dangerous sharp edges in the occupant compartment, and protrusions exceeding specified heights require head impact testing.' }, special: { zh:'对新能源车型电池包上方的内饰防护有额外建议。', en:'Additional recommendations for interior protection above battery packs in new energy vehicles.' }, test: { zh:'50mm 半径球体接触，动态头型撞击速度 24km/h', en:'50mm radius sphere contact, dynamic headform impact speed 24km/h' }, impact: { zh:'', en:'' } },
+                            EU: { status: 'fullfill', summary: { zh:'ECE R21 强制', en:'ECE R21 Mandatory' }, full: { zh:'严格执行 ECE R21。所有可能接触到的表面必须光滑，任何凸出物若高度超过限制，必须通过动态测试证明不会造成严重伤害。', en:'Strictly enforce ECE R21. All surfaces that may be contacted must be smooth, and any protrusions exceeding the limit must pass dynamic testing to prove they will not cause serious injury.' }, special: { zh:'包括遮阳板、拉手、按钮在内的所有部件。', en:'All components including sun visors, handles, and buttons.' }, test: { zh:'头型模型撞击，HIC 值限制严格', en:'Headform impact testing, strict HIC value limits' }, impact: { zh:'', en:'' } },
+                            US: { status: 'open_need_test', summary: { zh:'FMVSS 201U', en:'FMVSS 201U' }, full: { zh:'FMVSS 201 侧重上部内饰 (Head Impact Protection)。对仪表板、立柱、车顶的要求与美国特有的混合假人测试相关。', en:'FMVSS 201 focuses on upper interior (Head Impact Protection). Requirements for the dashboard, pillars, and roof are related to the unique hybrid dummy testing in the United States.' }, special: { zh:'允许某些功能性凸出物存在，只要满足吸能要求。', en:'Allows certain functional protrusions to exist as long as they meet energy absorption requirements.' }, test: { zh:'自由运动头型 (FMH) 测试，速度 24km/h (15mph)', en:'Free-Motion Head (FMH) testing, speed 24km/h (15mph)' }, impact: { zh:'', en:'' } },
+                            JP: { status: 'fullfill', summary: { zh:'协调 ECE', en:'Coordinated with ECE' }, full: { zh:'日本保安基准与 ECE R21 高度协调。对于符合 ECE 认证的部件通常直接认可。', en:'Japanese safety standards are highly coordinated with ECE R21. Components that comply with ECE certification are usually directly recognized.' }, special: { zh:"针对 K-Car 内部空间狭小特点，有部分豁免条款。", en:"For K-Car's small interior space characteristics, there are some exemption clauses." }, test: { zh:'同 ECE R21 标准', en:'Same as ECE R21 standard' }, impact: { zh:'', en:'' } }
+                        }
+                    },
+                    {
+                        id: 202,
+                        groupId: 'EKA',
+                        regCode: 'GB 11556 / FMVSS 103 / ECE R122',
+                        title: { zh: '除霜除雾系统', en: 'Defrosting/Defogging' },
+                        details: {
+                            CN: { status: 'open_need_test', summary: { zh:'面积覆盖率要求', en:'Area Coverage Requirements' }, full: { zh:'GB 11556 规定了前风窗玻璃除霜、除雾系统的性能要求，重点在于指定区域内的冰/雾清除百分比和时间。', en:'GB 11556 specifies performance requirements for front windshield defrosting and demisting systems, focusing on the percentage and time of ice/fog removal in designated areas.' }, special: { zh:'需在环境温度 -18°C 下进行测试。', en:'Testing must be conducted at an ambient temperature of -18°C.' }, test: { zh:'A 区 90% / B 区 80% 清除率，时间限制 20min', en:'Zone A 90% / Zone B 80% clearance rate, time limit 20min' }, impact: { zh:'', en:'' } },
+                            EU: { status: 'open_need_test', summary: { zh:'ECE R122', en:'ECE R122' }, full: { zh:'ECE R122 详细规定了测试程序。不仅要求除霜，还强调除雾性能。测试工况包含高湿度环境。', en:'ECE R122 details the testing procedures. It not only requires defrosting but also emphasizes demisting performance. Test conditions include high humidity environments.' }, special: { zh:'对电动汽车热泵系统的除霜效率有新的评估方法。', en:'New evaluation methods for the defrosting efficiency of electric vehicle heat pump systems.' }, test: { zh:'A 区 95% / B 区 90% (更严格)，含湿度循环', en:'Zone A 95% / Zone B 90% (stricter), with humidity cycles' }, impact: { zh:'', en:'' } },
+                            US: { status: 'not_fullfill', summary: { zh:'FMVSS 103 极严', en:'FMVSS 103 Extremely Strict' }, full: { zh:'FMVSS 103 是全球最严苛的除霜标准之一。要求在极低温下 (-18°F / -28°C) 短时间内达到极高的清除率，且对除雾有单独的性能指标。', en:'FMVSS 103 is one of the most stringent defrosting standards globally. It requires achieving extremely high clearance rates within a short time frame under extreme cold conditions (-18°F / -28°C), with separate performance metrics for demisting.' }, special: { zh:'测试温度更低，时间要求更短，失败率高。', en:'Lower test temperatures, shorter time requirements, and high failure rates.' }, test: { zh:'-28°C 环境，A 区 95% 清除仅需 10-15min', en:'Environment at -28°C, Zone A 95% clearance requires only 10-15min' }, impact: { zh:'', en:'' } },
+                            JP: { status: 'fullfill', summary: { zh:'温和气候适配', en:'Mild Climate Adaptation' }, full: { zh:'考虑到日本气候特点，部分严寒测试要求略有放宽，但仍需保证基本视野安全。', en:"Considering Japan's climate characteristics, some severe cold-weather test requirements are slightly relaxed, but basic visibility safety must still be ensured." }, special: { zh:'注重除雾性能而非极端除霜。', en:'Focus on demisting performance rather than extreme defrosting.' }, test: { zh:'标准循环测试，侧重湿度控制', en:'Standard cycle testing, focusing on humidity control' }, impact: { zh:'', en:'' } }
+                        }
+                    },
+                    {
+                        id: 203,
+                        groupId: 'EKAS',
+                        regCode: 'GB/T 24550 / GTR No.9 / ECE R127',
+                        title: { zh: '行人头部碰撞保护', en: 'Pedestrian Head Impact' },
+                        details: {
+                            CN: { status: 'open_need_test', summary: { zh:'推荐转强制过渡', en:'Transition from Recommended to Mandatory' }, full: { zh:'原为推荐性标准，现逐步纳入强制性管理。参照 GTR No.9，要求发动机罩前沿区域满足 HIC 值限制。', en:'Originally a recommended standard, now gradually incorporated into mandatory management. Referencing GTR No.9, it requires the front edge area of the bonnet to meet HIC value limits.' }, special: { zh:'对车辆前部结构刚度有明确限制，鼓励使用主动弹起引擎盖。', en:'Clear restrictions on vehicle front structure stiffness, encouraging the use of active pop-up bonnets.' }, test: { zh:'儿童/成人头型撞击，HIC < 1000 (部分区域)', en:'Child/Adult headform impact, HIC < 1000 (partial areas)' }, impact: { zh:'', en:'' } },
+                            EU: { status: 'not_fullfill', summary: { zh:'ECE R127 强制', en:'ECE R127 Mandatory' }, full: { zh:'全球最严。不仅要求头部保护，还包括腿部碰撞保护。要求车辆在碰撞瞬间通过传感器触发主动保护措施。', en:'The most stringent globally. It not only requires head protection but also includes leg impact protection. Vehicles must trigger active protection measures through sensors upon impact.' }, special: { zh:'测试覆盖面积大，包括挡风玻璃下部区域。', en:'Large test coverage area, including the lower part of the windshield.' }, test: { zh:'多点位撞击，HIC 限值极低，含腿型冲击', en:'Multi-point impact, extremely low HIC limits, including legform impact' }, impact: { zh:'', en:'' } },
+                            US: { status: 'fullfill', summary: { zh:'自愿性为主', en:'Voluntary by Nature' }, full: { zh:'FMVSS 目前没有强制的行人保护法规。主要依赖 NCAP (新车评价规程) 的星级评定来推动车企改进。', en:'FMVSS currently has no mandatory pedestrian protection regulations. It mainly relies on NCAP (New Car Assessment Program) star ratings to drive automakers to improve.' }, special: { zh:'大部分车型仅满足最低安全要求，主动弹起引擎盖选配较少。', en:'Most models only meet minimum safety requirements, and active pop-up bonnets are less commonly equipped.' }, test: { zh:'NCAP 测试参考，非强制准入条件', en:'NCAP test reference, not a mandatory准入 condition' }, impact: { zh:'', en:'' } },
+                            JP: { status: 'not_fullfill', summary: { zh:'早期推行者', en:'Early Adopter' }, full: { zh:'日本是最早推行行人保护法规的国家之一。标准极其细致，对发动机罩下的缓冲空间有严格要求。', en:'Japan is one of the earliest countries to implement pedestrian protection regulations. The standards are extremely detailed, with strict requirements for the buffer space under the hood.' }, special: { zh:'针对小型车有特殊的评价曲线。', en:'Special evaluation curves for compact cars.' }, test: { zh:'J-NCAP 高分要求，HIC 限制严格', en:'High score requirements by J-NCAP, strict HIC limits' }, impact: { zh:'', en:'' } }
+                        }
+                    },
+                    {
+                        id: 204,
+                        groupId: 'EKAA',
+                        regCode: 'GB 11552 / FMVSS 201 / ECE R21',
+                        title: { zh: '座椅强度与头枕', en: 'Seat Strength & Head Restraints' },
+                        details: {
+                            CN: { status: 'fullfill', summary: { zh:'等效 ECE R17', en:'Equivalent to ECE R17' }, full: { zh:'GB 11550/11551 等效采用 ECE R17/R25。要求座椅在追尾碰撞中保持强度，头枕需限制头部后仰。', en:'GB 11550/11551 is equivalent to ECE R17/R25. It requires seats to maintain strength in rear-end collisions, and head restraints must limit head backward extension.' }, special: { zh:'无明显差异。', en:'No significant differences.' }, test: { zh:'静态加载测试，力矩测试', en:'Static loading test, moment test' }, impact: { zh:'', en:'' } },
+                            EU: { status: 'fullfill', summary: { zh:'ECE R17/R25', en:'ECE R17/R25' }, full: { zh:'标准成熟，重点关注头枕的高度和锁止机构的可靠性。', en:'The standard is mature, focusing on the height of head restraints and the reliability of locking mechanisms.' }, special: { zh:'新增对后排座椅头枕的要求。', en:'Additional requirements for rear seat head restraints added.' }, test: { zh:'动态鞭打测试 (Whiplash)', en:'Dynamic whiplash test' }, impact: { zh:'', en:'' } },
+                            US: { status: 'open_need_test', summary: { zh:'FMVSS 202a', en:'FMVSS 202a' }, full: { zh:'FMVSS 202a 特别强调防挥鞭伤 (Whiplash) 性能，测试假人和评价体系与 ECE 不同。', en:'FMVSS 202a particularly emphasizes whiplash protection performance, with test dummies and evaluation systems different from ECE.' }, special: { zh:'头枕高度和锁定位置要求更具体。', en:'More specific requirements for head restraint height and locking positions.' }, test: { zh:'BioRID 假人动态测试', en:'BioRID dummy dynamic test' }, impact: { zh:'', en:'' } },
+                            JP: { status: 'fullfill', summary: { zh:'协调标准', en:'Coordinated Standard' }, full: { zh:'与 ECE 保持一致。', en:'Maintains consistency with ECE.' }, special: { zh:'无。', en:'None.' }, test: { zh:'同 ECE', en:'Same as ECE' }, impact: { zh:'', en:'' } }
+                        }
+                    }
+                ],
+
+                // --- 辅助函数 ---
+
+                get filteredItems() {
+                    return this.items.filter(item => {
+                        const matchGroup = this.selectedGroups.length === 0 || this.selectedGroups.includes(item.groupId);
+                        
+                        const titleText = this.getLangText(item.title)
+                        const q = this.searchQuery.toLowerCase()
+                        const matchTitle = titleText.toLowerCase().includes(q)
+                        const matchCountry = this.markets.some(m => this.getLangText(m.name).toLowerCase().includes(q) && item.details[m.code])
+                        const matchSearch = !q || matchTitle || matchCountry;
+                        
+                        const matchMarketFilter = Object.keys(this.marketFilters).every(marketCode => {
+                            const filters = this.marketFilters[marketCode];
+                            if(!filters || filters.length === 0) return true;
+                            const status = item.details[marketCode]?.status;
+                            return filters.includes(status);
+                        });
+                        
+                        return matchGroup && matchSearch && matchMarketFilter;
+                    });
+                },
+
+                get filteredMarkets() {
+                    const q = this.searchQuery.toLowerCase()
+                    if (!q) return this.markets
+                    const matchCountry = this.markets.some(m => this.getLangText(m.name).toLowerCase().includes(q))
+                    if (matchCountry) {
+                        return this.markets.filter(m => this.getLangText(m.name).toLowerCase().includes(q))
+                    }
+                    return this.markets
+                },
+
+                autoResize(el, minH, maxH) {
+                    el.style.height = minH + 'px'
+                    el.style.overflowY = 'hidden'
+                    const scrollH = el.scrollHeight
+                    if (scrollH <= minH) {
+                        el.style.height = minH + 'px'
+                    } else if (scrollH > maxH) {
+                        el.style.height = maxH + 'px'
+                        el.style.overflowY = 'auto'
+                    } else {
+                        el.style.height = scrollH + 'px'
+                    }
+                },
+
+                findItem(id) {
+                    return this.items.find(x => x.id === id);
+                },
+
+                getGroupName(id) {
+    const g = this.groups.find(x => x.id === id);
+    return g ? this.getLangText(g.name) : (this.lang==='zh'?'未知组别':'Unknown');
+},
+
+toggleGroupFilter(groupId) {
+    if (groupId === 'all') {
+        this.selectedGroups = [];
+        return;
+    }
+    const idx = this.selectedGroups.indexOf(groupId);
+    if (idx > -1) {
+        this.selectedGroups.splice(idx, 1);
+    } else {
+        this.selectedGroups.push(groupId);
+    }
+},
+
+openGroupDropdown() {
+    this.groupDropdownOpen = !this.groupDropdownOpen;
+    if (this.groupDropdownOpen) {
+        this.$nextTick(() => {
+            const btn = this.$refs.groupFilterWrap?.querySelector('button');
+            if (btn) {
+                const rect = btn.getBoundingClientRect();
+                this.groupDropdownPos = {
+                    top: rect.bottom + 4,
+                    left: rect.left
+                };
+            }
+        });
+    }
+},
+
+                async translateText(text, targetLang){
+    const apiKey = 'sk-848c55c5e947485a864caa284e46feef'; // 这里填你的DeepSeek API KEY
+
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify({
+            model: 'deepseek-v4-pro',
+            messages: [
+                {
+                    role: 'system',
+                    content: '你是一个专业的中英文翻译助手，只返回翻译结果，不要解释'
+                },
+                {
+                    role: 'user',
+                    content: `翻译成${targetLang === 'zh' ? '中文' : '英文'}：${text}`
+                }
+            ],
+            temperature: 0.2
+        })
+    })
+
+    const data = await res.json()
+
+    if(!data.choices){
+        console.error('翻译失败', data)
+        return ''
+    }
+
+    return data.choices[0].message.content.trim()
+},
+
+async handleTranslate(field){
+    if(!this.activeItem || !this.activeMarket) return
+
+    const detail = this.activeItem.details[this.activeMarket.code]
+
+    const currentLang = this.lang
+    const targetLang = currentLang === 'zh' ? 'en' : 'zh'
+
+    const text = detail[field][currentLang]
+
+    if(!text || text.length < 2) return
+
+    const translated = await this.translateText(text, targetLang)
+
+    detail[field][targetLang] = translated
+},
+
+handleTranslateDebounced(field){
+    clearTimeout(this._tTimer)
+    this._tTimer = setTimeout(()=>{
+        this.handleTranslate(field)
+    }, 500)
+},
+
+async handleMarketTranslate(field, market){
+    const currentLang = this.lang
+    const targetLang = currentLang === 'zh' ? 'en' : 'zh'
+
+    const text = market[field][currentLang]
+
+    if(!text || text.length < 2) return
+
+    const translated = await this.translateText(text, targetLang)
+
+    market[field][targetLang] = translated
+},
+
+async handleItemTranslate(field, item){
+    const currentLang = this.lang
+    const targetLang = currentLang === 'zh' ? 'en' : 'zh'
+
+    const text = item[field][currentLang]
+
+    if(!text || text.length < 2) return
+
+    const translated = await this.translateText(text, targetLang)
+
+    item[field][targetLang] = translated
+},
+
+async handleGlobalNoteTranslate(item){
+    const currentLang = this.lang
+    const targetLang = currentLang === 'zh' ? 'en' : 'zh'
+
+    const text = item.globalNote[currentLang]
+
+    if(!text || text.length < 2) return
+
+    const translated = await this.translateText(text, targetLang)
+
+    item.globalNote[targetLang] = translated
+},
+
+async handleGroupTranslate(currentLang, group){
+    const targetLang = currentLang === 'zh' ? 'en' : 'zh'
+    const text = group.name[currentLang]
+
+    if(!text || text.length < 2) return
+
+    const translated = await this.translateText(text, targetLang)
+    group.name[targetLang] = translated
+},
+
+async handleNewGroupTranslate(currentLang){
+    const targetLang = currentLang === 'zh' ? 'en' : 'zh'
+    const text = this.newGroupName[currentLang]
+
+    if(!text || text.length < 2) return
+
+    const translated = await this.translateText(text, targetLang)
+    this.newGroupName[targetLang] = translated
+},
+
+addGroup(){
+    if(!this.newGroupName.zh && !this.newGroupName.en) return
+    
+    const id = 'group_' + Date.now()
+    this.groups.push({
+        id: id,
+        name: {
+            zh: this.newGroupName.zh || this.newGroupName.en,
+            en: this.newGroupName.en || this.newGroupName.zh
+        }
+    })
+    
+    this.newGroupName = { zh: '', en: '' }
+},
+
+deleteGroup(groupId){
+    const hasItems = this.items.some(item => item.groupId === groupId)
+    if(hasItems){
+        alert(this.lang === 'zh' ? '该组别下还有法规条目，无法删除' : 'Cannot delete group with existing items')
+        return
+    }
+    
+    this.groups = this.groups.filter(group => group.id !== groupId)
+},
+
+confirmDeleteItem(itemId){
+    if(confirm(this.lang === 'zh' ? '确定要删除这个法规条目吗？' : 'Are you sure you want to delete this regulation item?')){
+        this.deleteItem(itemId)
+    }
+},
+
+confirmDeleteMarket(marketCode){
+    if(confirm(this.lang === 'zh' ? '确定要删除这个市场吗？' : 'Are you sure you want to delete this market?')){
+        this.deleteMarket(marketCode)
+    }
+},
+
+confirmDeleteGroup(groupId){
+    if(confirm(this.lang === 'zh' ? '确定要删除这个组别吗？' : 'Are you sure you want to delete this group?')){
+        this.deleteGroup(groupId)
+    }
+},
+
+async saveChanges() {
+    this.saveHistory();
+    
+    this.db.meta.version++;
+    this.db.meta.lastEditor = this.currentUser;
+    this.db.meta.lastEditTime = new Date().toLocaleString();
+    
+    await this.saveNow();
+
+    this.originalPasswordHash = null;
+    
+    this.dirty = false;
+},
+
+async sha256(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+},
+
+async verifyEditPassword() {
+    const inputHash = await this.sha256(this.editPasswordInput);
+    if (inputHash === this.editPasswordHash) {
+        this.showPasswordModal = false;
+        this.editPasswordInput = '';
+        this.passwordError = false;
+        if(this.createLock()){
+            this.originalData = {
+                items: JSON.parse(JSON.stringify(this.items)),
+                markets: JSON.parse(JSON.stringify(this.markets)),
+                groups: JSON.parse(JSON.stringify(this.groups))
+            };
+            this.dirty = true;
+            this.editMode = true;
+        }
+    } else {
+        this.passwordError = true;
+    }
+},
+
+async changeEditPassword(oldPwd, newPwd) {
+    const oldHash = await this.sha256(oldPwd);
+    if (oldHash !== this.editPasswordHash) {
+        return false;
+    }
+    const newHash = await this.sha256(newPwd);
+    if (!this.originalPasswordHash) {
+        this.originalPasswordHash = this.editPasswordHash;
+    }
+    this.editPasswordHash = newHash;
+    this.dirty = true;
+    return true;
+},
+
+async handleChangePassword() {
+    if (!this.changePwdOld || !this.changePwdNew || !this.changePwdConfirm) {
+        this.changePwdError = this.lang === 'zh' ? '请填写所有字段' : 'Please fill in all fields';
+        return;
+    }
+    if (this.changePwdNew !== this.changePwdConfirm) {
+        this.changePwdError = this.lang === 'zh' ? '两次输入的新密码不一致' : 'New passwords do not match';
+        return;
+    }
+    if (this.changePwdNew.length < 4) {
+        this.changePwdError = this.lang === 'zh' ? '新密码至少4位' : 'Password must be at least 4 characters';
+        return;
+    }
+    const success = await this.changeEditPassword(this.changePwdOld, this.changePwdNew);
+    if (success) {
+        this.showChangePwdModal = false;
+        this.changePwdOld = '';
+        this.changePwdNew = '';
+        this.changePwdConfirm = '';
+        this.changePwdError = '';
+        alert(this.lang === 'zh' ? '密码修改成功！' : 'Password changed successfully!');
+    } else {
+        this.changePwdError = this.lang === 'zh' ? '旧密码错误' : 'Incorrect old password';
+    }
+},
+
+toggleEditMode(){
+    if(this.editMode){
+        if(this.dirty){
+            if(confirm(this.lang === 'zh' ? '退出编辑模式前是否保存更改？' : 'Do you want to save changes before exiting edit mode?')){
+                // 标记为需要在保存后退出编辑模式
+                this.exitAfterSave = true
+                // 显示用户信息弹窗
+                this.triggerSave()
+                return // 暂停执行，等待用户输入
+            } else {
+                if(this.originalData){
+                    this.items = JSON.parse(JSON.stringify(this.originalData.items))
+                    this.markets = JSON.parse(JSON.stringify(this.originalData.markets))
+                    this.groups = JSON.parse(JSON.stringify(this.originalData.groups))
+                    this.newGroupName = { zh: '', en: '' }
+                    this.dirty = false
+                }
+                if(this.originalPasswordHash){
+                    this.editPasswordHash = this.originalPasswordHash
+                    this.originalPasswordHash = null
+                }
+                this.manageGroups = false
+                this.clearLock()
+                this.editMode = false
+            }
+        } else {
+            // 没有未保存的更改，直接退出
+            this.manageGroups = false
+            this.clearLock()
+            this.editMode = false
+        }
+    } else {
+        if(this.isLocked){
+            alert(this.lang === 'zh' ? '文件已被其他用户锁定，无法编辑' : 'File is locked by another user, cannot edit')
+            return
+        }
+        this.showPasswordModal = true
+        this.editPasswordInput = ''
+        this.passwordError = false
+    }
+},
+
+                showExportOptions(){
+    this.showExportModal = true
+},
+triggerSave(){
+    // 立即显示用户信息弹窗
+    this.showUserModal = true
+    // 强制Alpine.js更新DOM
+    this.$nextTick(() => {
+        // 聚焦到第一个输入框
+        const nameInput = document.querySelector('[x-model="userInfo.name"]')
+        if(nameInput) {
+            nameInput.focus()
+        }
+    })
+},
+confirmSaveWithUser(){
+    if(!this.userInfo.name || !this.userInfo.userId){
+        alert(this.lang==='zh' ? '请填写姓名和用户ID' : 'Please fill in name and user ID')
+        return
+    }
+
+    // 写入当前用户（用于 meta）
+    this.currentUser = this.userInfo.name + ' (' + this.userInfo.userId + ')'
+
+    this.showUserModal = false
+
+    // 真正执行保存
+    this.saveChanges()
+    
+    // 检查是否需要在保存后退出编辑模式
+    if(this.exitAfterSave){
+        this.manageGroups = false
+        this.clearLock()
+        this.editMode = false
+        this.exitAfterSave = false
+    }
+    
+    // 每次保存后清空用户信息，确保下次保存需要重新输入
+    this.userInfo = { name: '', userId: '' }
+},
+exportModalContent(format = 'txt'){    if(!this.activeItem || !this.activeMarket) return
+
+    const data = this.activeItem.details[this.activeMarket.code]
+
+    const text = `
+【${this.lang === 'zh' ? '法规条目' : 'Regulation Item'}】
+${this.getLangText(this.activeItem.title)}
+${this.getLangText(this.activeItem.regCode)}
+
+【${this.lang === 'zh' ? '国标要求' : 'National Standard Requirement'}】
+${this.getLangText(this.activeItem.globalNote) || (this.lang === 'zh' ? '通常基于 UN Regulation (ECE) 或 ISO 标准，要求半径大于 2.5mm 的凸出物需进行动态测试。' : 'Generally based on UN Regulation (ECE) or ISO standards, requiring dynamic testing for protrusions with radius greater than 2.5mm.')}
+
+【${this.getLangText(this.activeMarket.name)}】
+${this.lang === 'zh' ? '状态' : 'Status'}: ${this.getLangText(this.getShortStatus(this.activeItem, this.activeMarket.code))}
+${this.lang === 'zh' ? '解读说明' : 'Interpretation'}: ${this.getLangText(data.full)}
+${this.lang === 'zh' ? '对比结果' : 'Comparison Result'}: ${this.getLangText(data.summary)}
+${this.lang === 'zh' ? '总结信息' : 'Summary'}: ${this.getLangText(data.test)}
+${this.lang === 'zh' ? '影响范围' : 'Impact Scope'}: ${this.getLangText(data.impact)}
+${this.lang === 'zh' ? '差异点' : 'Key Differences'}: ${this.getLangText(data.special)}
+`
+
+    if(format === 'txt') {
+        // 导出为TXT文件
+        const dataBlob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${this.getLangText(this.activeItem.title)}_${this.getLangText(this.activeMarket.name)}.txt`;
+        link.click();
+        URL.revokeObjectURL(url);
+    } else if(format === 'pdf') {
+        const content = `
+            <div style="width:700px;padding:40px;background:white;font-family:Microsoft YaHei,PingFang SC,SimHei,sans-serif;">
+                <div style="font-size:24px;font-weight:bold;text-align:center;margin-bottom:30px;padding-bottom:15px;border-bottom:2px solid #3498db;color:#2c3e50;">${this.getLangText(this.activeItem.title)}</div>
+                
+                <div style="margin-bottom:20px;">
+                    <div style="font-size:16px;font-weight:bold;margin-bottom:10px;color:#3498db;">【${this.lang === 'zh' ? '法规条目' : 'Regulation Item'}】</div>
+                    <div style="font-size:13px;line-height:1.8;">${this.getLangText(this.activeItem.title)}</div>
+                    <div style="font-size:13px;line-height:1.8;color:#3498db;">${this.getLangText(this.activeItem.regCode)}</div>
+                </div>
+                
+                <div style="margin-bottom:20px;">
+                    <div style="font-size:16px;font-weight:bold;margin-bottom:10px;color:#3498db;">【${this.lang === 'zh' ? '国标要求' : 'National Standard Requirement'}】</div>
+                    <div style="font-size:13px;line-height:1.8;">${this.getLangText(this.activeItem.globalNote) || (this.lang === 'zh' ? '通常基于 UN Regulation (ECE) 或 ISO 标准，要求半径大于 2.5mm 的凸出物需进行动态测试。' : 'Generally based on UN Regulation (ECE) or ISO standards, requiring dynamic testing for protrusions with radius greater than 2.5mm.')}</div>
+                </div>
+                
+                <div style="margin-bottom:25px;padding:15px;background:#f8f9fa;border-radius:8px;">
+                    <div style="font-size:14px;font-weight:bold;margin-bottom:10px;color:#2c3e50;">【${this.getLangText(this.activeMarket.name)}】</div>
+                    <div style="font-size:12px;margin-bottom:5px;color:${this.getStatusColorForPDF(this.activeItem.details[this.activeMarket.code]?.status)};">${this.lang === 'zh' ? '状态' : 'Status'}: [${this.getStatusColor(this.activeItem.details[this.activeMarket.code]?.status)}] ${this.getLangText(this.getShortStatus(this.activeItem, this.activeMarket.code))}</div>
+                    <div style="font-size:12px;margin-bottom:5px;">${this.lang === 'zh' ? '解读说明' : 'Interpretation'}: ${this.getLangText(data.full) || '-'}</div>
+                    <div style="font-size:12px;margin-bottom:5px;">${this.lang === 'zh' ? '对比结果' : 'Comparison Result'}: ${this.getLangText(data.summary) || '-'}</div>
+                    <div style="font-size:12px;margin-bottom:5px;">${this.lang === 'zh' ? '测试参数' : 'Test Parameters'}: ${this.getLangText(data.test) || '-'}</div>
+                    <div style="font-size:12px;margin-bottom:5px;">${this.lang === 'zh' ? '影响范围' : 'Impact Scope'}: ${this.getLangText(data.impact) || '-'}</div>
+                    <div style="font-size:12px;">${this.lang === 'zh' ? '特殊要求' : 'Special Requirements'}: ${this.getLangText(data.special) || '-'}</div>
+                </div>
+            </div>
+        `
+
+        const tempDiv = document.createElement('div')
+        tempDiv.innerHTML = content
+        tempDiv.id = 'modal-pdf-export-temp'
+        tempDiv.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9998;
+            opacity: 1;
+            visibility: visible;
+        `
+        document.body.appendChild(tempDiv)
+
+        const maskDiv = document.createElement('div')
+        maskDiv.id = 'modal-pdf-export-mask'
+        maskDiv.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `
+        maskDiv.innerHTML = '<div style="font-size:18px;color:#3498db;">正在生成PDF...</div>'
+        document.body.appendChild(maskDiv)
+
+        setTimeout(() => {
+            html2canvas(document.getElementById('modal-pdf-export-temp'), {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            }).then(canvas => {
+                const { jsPDF } = window.jspdf
+                const doc = new jsPDF('p', 'mm', 'a4')
+                const pageWidth = doc.internal.pageSize.getWidth()
+                const pageHeight = doc.internal.pageSize.getHeight()
+                const imgWidth = pageWidth - 10
+                const scaleFactor = imgWidth / canvas.width
+                const imgHeight = canvas.height * scaleFactor
+                const pageContentHeight = pageHeight - 10
+                
+                const totalPages = Math.ceil(imgHeight / pageContentHeight)
+                const sourcePageHeight = canvas.height / totalPages
+                
+                for (let i = 0; i < totalPages; i++) {
+                    if (i > 0) {
+                        doc.addPage()
+                    }
+                    
+                    const startY = i * sourcePageHeight
+                    const endY = Math.min(startY + sourcePageHeight, canvas.height)
+                    const croppedHeight = endY - startY
+                    
+                    const croppedCanvas = document.createElement('canvas')
+                    croppedCanvas.width = canvas.width
+                    croppedCanvas.height = croppedHeight
+                    const ctx = croppedCanvas.getContext('2d')
+                    ctx.drawImage(canvas, 0, startY, canvas.width, croppedHeight, 0, 0, canvas.width, croppedHeight)
+                    
+                    const croppedImgData = croppedCanvas.toDataURL('image/png')
+                    doc.addImage(croppedImgData, 'PNG', 5, 5, imgWidth, croppedHeight * scaleFactor)
+                }
+
+                doc.save(this.getLangText(this.activeItem.title) + '_' + this.getLangText(this.activeMarket.name) + '.pdf')
+                document.body.removeChild(document.getElementById('modal-pdf-export-temp'))
+                document.body.removeChild(document.getElementById('modal-pdf-export-mask'))
+                this.showExportModal = false
+            }).catch(err => {
+                console.error('PDF导出失败:', err)
+                alert(this.lang === 'zh' ? 'PDF导出失败，请重试！' : 'PDF export failed, please try again!')
+                const tempEl = document.getElementById('modal-pdf-export-temp')
+                if(tempEl && tempEl.parentNode) {
+                    document.body.removeChild(tempEl)
+                }
+                const maskEl = document.getElementById('modal-pdf-export-mask')
+                if(maskEl && maskEl.parentNode) {
+                    document.body.removeChild(maskEl)
+                }
+                this.showExportModal = false
+            })
+        }, 300)
+    }
+},
+openMarketExportModal(market){
+    this.exportingMarket = market
+    this.showMarketExportModal = true
+},
+exportItemReport(item) {
+    const maskDiv = document.createElement('div')
+    maskDiv.id = 'item-pdf-mask'
+    maskDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;'
+    maskDiv.innerHTML = '<div style="font-size:18px;color:#3498db;">正在生成PDF...</div>'
+    document.body.appendChild(maskDiv)
+
+    const renderHtmlToCanvas = async (html, padding = '40px') => {
+        const div = document.createElement('div')
+        div.innerHTML = `<div style="width:700px;padding:${padding};background:white;font-family:Microsoft YaHei,PingFang SC,SimHei,sans-serif;">${html}</div>`
+        div.style.cssText = 'position:fixed;top:-9999px;left:-9999px;z-index:-1;'
+        document.body.appendChild(div)
+        const canvas = await html2canvas(div, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
+        document.body.removeChild(div)
+        return canvas
+    }
+
+    setTimeout(async () => {
+        try {
+            const { jsPDF } = window.jspdf
+            const doc = new jsPDF('p', 'mm', 'a4')
+            const pageWidth = doc.internal.pageSize.getWidth()
+            const pageHeight = doc.internal.pageSize.getHeight()
+            const marginX = 5
+            const marginY = 5
+            const imgWidth = pageWidth - marginX * 2
+            let currentY = marginY
+
+            const addCanvasToPdf = (canvas) => {
+                const scaleFactor = imgWidth / canvas.width
+                const imgHeight = canvas.height * scaleFactor
+                if (currentY + imgHeight > pageHeight - marginY) {
+                    doc.addPage()
+                    currentY = marginY
+                }
+                const imgData = canvas.toDataURL('image/png')
+                doc.addImage(imgData, 'PNG', marginX, currentY, imgWidth, imgHeight)
+                currentY += imgHeight
+            }
+
+            const headerHtml = `
+                <div style="font-size:22px;font-weight:bold;text-align:center;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid #3498db;color:#2c3e50;">${this.getLangText(item.title)}</div>
+                <div style="font-size:12px;text-align:center;color:#7f8c8d;margin-bottom:20px;">${item.regCode} | ${this.getGroupName(item.groupId)}</div>
+            `
+            const headerCanvas = await renderHtmlToCanvas(headerHtml, '40px 40px 10px 40px')
+            addCanvasToPdf(headerCanvas)
+
+            for (const market of this.markets) {
+                const detail = item.details[market.code]
+                if (!detail) continue
+
+                const statusText = this.getLangText(this.getShortStatus(item, market.code))
+                const statusColor = this.getStatusColor(detail.status)
+                const statusColorCode = this.getStatusColorForPDF(detail.status)
+
+                let marketHtml = `<div style="margin-bottom:8px;padding:15px;background:#f8f9fa;border-radius:8px;page-break-inside:avoid;break-inside:avoid;">`
+                marketHtml += `<div style="font-size:14px;font-weight:bold;margin-bottom:8px;color:#2c3e50;">${this.getLangText(market.name)} <span style="font-size:11px;color:${statusColorCode};">[${statusColor}] ${statusText}</span></div>`
+                if(detail.summary) marketHtml += `<div style="font-size:12px;line-height:1.8;margin-bottom:6px;"><b>${this.lang==='zh'?'对比结果':'Comparison Result'}:</b> ${this.getLangText(detail.summary)}</div>`
+                if(detail.full) marketHtml += `<div style="font-size:12px;line-height:1.8;margin-bottom:6px;"><b>${this.lang==='zh'?'详细解读':'Detail'}:</b> ${this.getLangText(detail.full)}</div>`
+                if(detail.special) marketHtml += `<div style="font-size:12px;line-height:1.8;margin-bottom:6px;"><b>${this.lang==='zh'?'特殊要求':'Special'}:</b> ${this.getLangText(detail.special)}</div>`
+                if(detail.test) marketHtml += `<div style="font-size:12px;line-height:1.8;"><b>${this.lang==='zh'?'测试参数':'Test'}:</b> ${this.getLangText(detail.test)}</div>`
+                marketHtml += `</div>`
+
+                const marketCanvas = await renderHtmlToCanvas(marketHtml, '0 40px')
+                const scaleFactor = imgWidth / marketCanvas.width
+                const itemImgHeight = marketCanvas.height * scaleFactor
+
+                if (currentY + itemImgHeight > pageHeight - marginY) {
+                    doc.addPage()
+                    currentY = marginY
+                }
+
+                const imgData = marketCanvas.toDataURL('image/png')
+                doc.addImage(imgData, 'PNG', marginX, currentY, imgWidth, itemImgHeight)
+                currentY += itemImgHeight
+            }
+
+            doc.save(this.getLangText(item.title) + '_' + (this.lang==='zh'?'对比报告':'Comparison') + '.pdf')
+            document.body.removeChild(maskDiv)
+        } catch (err) {
+            console.error('PDF导出失败:', err)
+            alert(this.lang === 'zh' ? 'PDF导出失败，请重试！' : 'PDF export failed!')
+            const maskEl = document.getElementById('item-pdf-mask')
+            if(maskEl && maskEl.parentNode) document.body.removeChild(maskEl)
+        }
+    }, 300)
+},
+
+exportMarketContent(format = 'txt'){
+    if(!this.exportingMarket) return
+
+    const market = this.exportingMarket
+
+    if(format === 'txt'){
+        let text = `【${this.lang === 'zh' ? '标准法规' : 'Standard Regulation'}】\n`
+        text += `${this.getLangText(market.standard) || (this.lang === 'zh' ? '暂无' : 'Not available')}\n\n`
+        if(market.guideFile){
+            text += `【${this.lang === 'zh' ? '准入指南' : 'Entry Guide'}】\n`
+            text += `${market.guideFile}\n\n`
+        }
+        text += `【${this.lang === 'zh' ? '市场概述' : 'Market Overview'}】\n`
+        text += `${this.getLangText(market.description) || (this.lang === 'zh' ? '暂无描述' : 'No description available')}\n\n`
+        text += `【${this.lang === 'zh' ? '关键合规要求' : 'Key Compliance Requirements'}】\n`
+        
+        const statusOrder = { not_fullfill: 0, open_need_test: 1, fullfill: 2 }
+        const sortedItems = this.items
+            .filter(item => item.details[market.code]?.status)
+            .sort((a, b) => {
+                const statusA = a.details[market.code]?.status
+                const statusB = b.details[market.code]?.status
+                return statusOrder[statusA] - statusOrder[statusB]
+            })
+        
+        sortedItems.forEach(item => {
+            const detail = item.details[market.code]
+            const statusText = this.getLangText(this.getShortStatus(item, market.code))
+            const statusColor = this.getStatusColor(detail.status)
+            text += `${this.getLangText(item.title)}\n`
+            text += `${this.lang === 'zh' ? '状态' : 'Status'}: [${statusColor}] ${statusText}\n`
+            text += `${this.lang === 'zh' ? '法规编号' : 'Regulation Code'}: ${this.getLangText(item.regCode)}\n`
+            text += `${this.lang === 'zh' ? '组别' : 'Category'}: ${this.getLangText(item.group)}\n`
+            if(detail.full) text += `${this.lang === 'zh' ? '详细解读' : 'Detailed Interpretation'}: ${this.getLangText(detail.full)}\n`
+            if(detail.summary) text += `${this.lang === 'zh' ? '摘要' : 'Summary'}: ${this.getLangText(detail.summary)}\n`
+            if(detail.test) text += `${this.lang === 'zh' ? '测试参数' : 'Test Parameters'}: ${this.getLangText(detail.test)}\n`
+            if(detail.impact) text += `${this.lang === 'zh' ? '影响范围' : 'Impact Scope'}: ${this.getLangText(detail.impact)}\n`
+            if(detail.special) text += `${this.lang === 'zh' ? '特殊要求' : 'Special Requirements'}: ${this.getLangText(detail.special)}\n`
+            text += '\n'
+        })
+
+        const blob = new Blob([text], {type: 'text/plain;charset=utf-8'})
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${this.getLangText(market.name)}.txt`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+    } else {
+        const statusOrder = { not_fullfill: 0, open_need_test: 1, fullfill: 2 }
+        const sortedItems = this.items
+            .filter(item => item.details[market.code]?.status)
+            .sort((a, b) => {
+                const statusA = a.details[market.code]?.status
+                const statusB = b.details[market.code]?.status
+                return statusOrder[statusA] - statusOrder[statusB]
+            })
+
+        const headerHtml = `
+            <div style="font-size:24px;font-weight:bold;text-align:center;margin-bottom:30px;padding-bottom:15px;border-bottom:2px solid #3498db;color:#2c3e50;">${this.getLangText(market.name)}</div>
+            <div style="margin-bottom:20px;">
+                <div style="font-size:16px;font-weight:bold;margin-bottom:10px;color:#3498db;">【${this.lang==='zh'?'标准法规':'Standard Regulation'}】</div>
+                <div style="font-size:13px;line-height:1.8;">${this.getLangText(market.standard) || (this.lang==='zh'?'暂无':'N/A')}</div>
+            </div>
+            <div style="margin-bottom:20px;">
+                <div style="font-size:16px;font-weight:bold;margin-bottom:10px;color:#3498db;">【${this.lang==='zh'?'市场概述':'Market Overview'}】</div>
+                <div style="font-size:13px;line-height:1.8;">${this.getLangText(market.description) || (this.lang==='zh'?'暂无描述':'No description')}</div>
+            </div>
+        `
+
+        const itemHtmlList = sortedItems.map((item, idx) => {
+            const detail = item.details[market.code]
+            const statusText = this.getLangText(this.getShortStatus(item, market.code))
+            const statusColor = this.getStatusColor(detail.status)
+            const statusColorCode = this.getStatusColorForPDF(detail.status)
+            let h = `<div class="pdf-item-block" style="margin-bottom:8px;padding:15px;background:#f8f9fa;border-radius:8px;page-break-inside:avoid;break-inside:avoid;">`
+            h += `<div style="font-size:14px;font-weight:bold;margin-bottom:10px;color:#2c3e50;">${idx + 1}. ${this.getLangText(item.title)}</div>`
+            h += `<div style="font-size:12px;margin-bottom:5px;color:${statusColorCode};">${this.lang==='zh'?'状态':'Status'}: [${statusColor}] ${statusText}</div>`
+            h += `<div style="font-size:12px;margin-bottom:5px;color:#3498db;">${this.lang==='zh'?'法规编号':'Reg Code'}: ${item.regCode}</div>`
+            h += `<div style="font-size:12px;margin-bottom:10px;color:#7f8c8d;">${this.lang==='zh'?'组别':'Category'}: ${this.getGroupName(item.groupId)}</div>`
+            if(detail.full) h += `<div style="font-size:12px;line-height:1.8;margin-bottom:8px;">${this.lang==='zh'?'详细解读':'Detail'}: ${this.getLangText(detail.full)}</div>`
+            if(detail.summary) h += `<div style="font-size:12px;line-height:1.8;margin-bottom:8px;">${this.lang==='zh'?'摘要':'Summary'}: ${this.getLangText(detail.summary)}</div>`
+            if(detail.test) h += `<div style="font-size:12px;line-height:1.8;margin-bottom:8px;">${this.lang==='zh'?'测试参数':'Test'}: ${this.getLangText(detail.test)}</div>`
+            if(detail.impact) h += `<div style="font-size:12px;line-height:1.8;margin-bottom:8px;">${this.lang==='zh'?'影响范围':'Impact'}: ${this.getLangText(detail.impact)}</div>`
+            if(detail.special) h += `<div style="font-size:12px;line-height:1.8;margin-bottom:8px;">${this.lang==='zh'?'特殊要求':'Special'}: ${this.getLangText(detail.special)}</div>`
+            h += `</div>`
+            return h
+        })
+
+        const sectionTitleHtml = `<div style="font-size:16px;font-weight:bold;margin-bottom:15px;color:#3498db;">【${this.lang==='zh'?'关键合规要求':'Key Compliance Requirements'}】</div>`
+
+        const renderHtmlToCanvas = async (html, padding = '40px') => {
+            const div = document.createElement('div')
+            div.innerHTML = `<div style="width:700px;padding:${padding};background:white;font-family:Microsoft YaHei,PingFang SC,SimHei,sans-serif;">${html}</div>`
+            div.style.cssText = 'position:fixed;top:-9999px;left:-9999px;z-index:-1;'
+            document.body.appendChild(div)
+            const canvas = await html2canvas(div, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' })
+            document.body.removeChild(div)
+            return canvas
+        }
+
+        const maskDiv = document.createElement('div')
+        maskDiv.id = 'pdf-export-mask'
+        maskDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;'
+        maskDiv.innerHTML = '<div style="font-size:18px;color:#3498db;">正在生成PDF...</div>'
+        document.body.appendChild(maskDiv)
+
+        setTimeout(async () => {
+            try {
+                const { jsPDF } = window.jspdf
+                const doc = new jsPDF('p', 'mm', 'a4')
+                const pageWidth = doc.internal.pageSize.getWidth()
+                const pageHeight = doc.internal.pageSize.getHeight()
+                const marginX = 5
+                const marginY = 5
+                const imgWidth = pageWidth - marginX * 2
+                const usablePageHeight = pageHeight - marginY * 2
+
+                let currentY = marginY
+
+                const addCanvasToPdf = (canvas) => {
+                    const scaleFactor = imgWidth / canvas.width
+                    const imgHeight = canvas.height * scaleFactor
+
+                    if (currentY + imgHeight > pageHeight - marginY) {
+                        doc.addPage()
+                        currentY = marginY
+                    }
+
+                    const imgData = canvas.toDataURL('image/png')
+                    doc.addImage(imgData, 'PNG', marginX, currentY, imgWidth, imgHeight)
+                    currentY += imgHeight
+                }
+
+                const headerCanvas = await renderHtmlToCanvas(headerHtml, '40px 40px 10px 40px')
+                addCanvasToPdf(headerCanvas)
+
+                const sectionTitleCanvas = await renderHtmlToCanvas(sectionTitleHtml, '0 40px')
+                addCanvasToPdf(sectionTitleCanvas)
+
+                for (let i = 0; i < itemHtmlList.length; i++) {
+                    const itemCanvas = await renderHtmlToCanvas(itemHtmlList[i], '0 40px')
+                    const scaleFactor = imgWidth / itemCanvas.width
+                    const itemImgHeight = itemCanvas.height * scaleFactor
+
+                    if (currentY + itemImgHeight > pageHeight - marginY) {
+                        doc.addPage()
+                        currentY = marginY
+                    }
+
+                    const imgData = itemCanvas.toDataURL('image/png')
+                    doc.addImage(imgData, 'PNG', marginX, currentY, imgWidth, itemImgHeight)
+                    currentY += itemImgHeight
+                }
+
+                doc.save(this.getLangText(market.name) + '.pdf')
+                document.body.removeChild(maskDiv)
+                this.showMarketExportModal = false
+            } catch (err) {
+                console.error('PDF导出失败:', err)
+                alert(this.lang === 'zh' ? 'PDF导出失败，请重试！' : 'PDF export failed!')
+                const maskEl = document.getElementById('pdf-export-mask')
+                if(maskEl && maskEl.parentNode) document.body.removeChild(maskEl)
+                this.showMarketExportModal = false
+            }
+        }, 300)
+    }
+},
+//中英文切换
+lang: 'zh',
+getLangText(val){
+    // 防止 null / undefined
+    if(val === null || val === undefined) return ''
+
+    // 如果是对象
+    if(typeof val === 'object'){
+        return val[this.lang] ?? val.zh ?? val.en ?? ''
+    }
+
+    // 如果是字符串（已经被污染）
+    return val
+},
+normalizeText(val){
+    // 已经是多语言对象
+    if(typeof val === 'object' && val !== null){
+        return val
+    }
+
+    // 如果是 "中文 (English)" 这种
+    if(typeof val === 'string' && val.includes('(')){
+        const match = val.match(/(.*)\((.*)\)/)
+        if(match){
+            return {
+                zh: match[1].trim(),
+                en: match[2].trim()
+            }
+        }
+    }
+
+    // 普通字符串 → 两边都一样
+    return {
+        zh: val || '',
+        en: val || ''
+    }
+},
+                // 获取单元格背景样式
+                getCellClass(item, marketCode) {
+                    const detail = item.details[marketCode];
+                    if (!detail) return '';
+                    if (detail.status === 'not_fullfill') return 'diff-high';
+                    if (detail.status === 'open_need_test') return 'diff-med';
+                    return 'diff-low';
+                },
+
+                // 获取徽章颜色 (背景色)
+                getBadgeColor(item, marketCode) {
+                    const detail = item.details[marketCode];
+                    if (!detail) return 'bg-gray-200 text-gray-500';
+                    if (detail.status === 'not_fullfill') return 'bg-red-500 text-white';
+                    if (detail.status === 'open_need_test') return 'bg-yellow-500 text-white';
+                    return 'bg-green-500 text-white';
+                },
+
+                // 获取状态颜色文字描述
+                getStatusColor(status) {
+                    if (status === 'not_fullfill') return this.lang === 'zh' ? '红色' : 'Red';
+                    if (status === 'open_need_test') return this.lang === 'zh' ? '黄色' : 'Yellow';
+                    return this.lang === 'zh' ? '绿色' : 'Green';
+                },
+
+                // 获取状态颜色代码（用于PDF导出）
+                getStatusColorForPDF(status) {
+                    if (status === 'not_fullfill') return '#e74c3c';
+                    if (status === 'open_need_test') return '#f39c12';
+                    return '#27ae60';
+                },
+                
+                // 获取徽章边框类 (用于条目视图)
+                getBadgeBorderClass(item, marketCode) {
+                    const detail = item.details[marketCode];
+                    if (!detail) return 'border-gray-300 text-gray-500';
+                    if (detail.status === 'not_fullfill') return 'border-red-500 text-red-600 bg-red-50';
+                    if (detail.status === 'open_need_test') return 'border-yellow-500 text-yellow-600 bg-yellow-50';
+                    return 'border-green-500 text-green-600 bg-green-50';
+                },
+
+                // 获取小圆点颜色
+                getDotColor(item, marketCode) {
+                     const detail = item.details[marketCode];
+                    if (!detail) return 'bg-gray-300';
+                    if (detail.status === 'not_fullfill') return 'bg-red-500';
+                    if (detail.status === 'open_need_test') return 'bg-yellow-500';
+                    return 'bg-green-500';
+                },
+
+                getShortStatus(item, marketCode) {
+    const map = { 
+        not_fullfill: { zh:'不满足', en:'Not Fullfill' },
+        open_need_test: { zh:'开放点/需测试', en:'Open/Need Test' },
+        fullfill: { zh:'满足', en:'Fullfill' }
+    };
+    return this.getLangText(map[item.details[marketCode]?.status])
+},
+
+                getStatusLabel(item, marketCode) {
+    const map = { 
+        not_fullfill: { zh:'不满足', en:'Not Fullfill' },
+        open_need_test: { zh:'开放点/需测试', en:'Open/Need Test' },
+        fullfill: { zh:'满足', en:'Fullfill' }
+    };
+    return this.getLangText(map[item.details[marketCode]?.status])
+
+},
+
+                getSummary(item, marketCode) {
+                    return item.details[marketCode]?.summary || { zh: '暂无摘要', en: 'No summary available' };
+                },
+
+                getFullDetail(item, marketCode) {
+                    return item.details[marketCode]?.full || { zh: '暂无详细解读', en: 'No detailed interpretation available' };
+                },
+
+                getSpecialRequirement(item, marketCode) {
+                    return item.details[marketCode]?.special || { zh: '无特殊额外要求', en: 'No special additional requirements' };
+                },
+
+                getTestParam(item, marketCode) {
+                    return item.details[marketCode]?.test || { zh: '标准测试程序', en: 'Standard test procedure' };
+                },
+                
+                getTechHighlight(item, marketCode) {
+                    // 提取测试参数的前几个字作为简短提示
+                    const param = item.details[marketCode]?.test || '';
+                    return param.length > 12 ? param.substring(0, 12) + '...' : param;
+                },
+
+                toggleDetail(index) {
+                    if (this.expandedRow === index) {
+                        this.expandedRow = null;
+                    } else {
+                        this.expandedRow = index;
+                    }
+                },
+
+                openModal(item, market) {
+                    this.activeItem = item;
+                    this.activeMarket = market;
+                    this.modalOpen = true;
+                    this.$nextTick(() => {
+                        document.querySelectorAll('.modal-textarea').forEach(el => {
+                            const min = parseInt(el.dataset.minH) || 40
+                            const max = parseInt(el.dataset.maxH) || 120
+                            this.autoResize(el, min, max)
+                        })
+                    })
+                },
+
+                // 为市场视图提取高光点 (展示所有状态的条目，按红黄绿顺序)
+                getMarketHighlights(marketCode) {
+                    const statusOrder = { not_fullfill: 0, open_need_test: 1, fullfill: 2 };
+                    const activeFilter = this.countryViewFilters[marketCode];
+                    return this.items
+                        .filter(item => {
+                            const detail = item.details[marketCode];
+                            if (!detail?.status) return false;
+                            if (activeFilter && detail.status !== activeFilter) return false;
+                            return true;
+                        })
+                        .sort((a, b) => {
+                            const statusA = a.details[marketCode]?.status;
+                            const statusB = b.details[marketCode]?.status;
+                            return statusOrder[statusA] - statusOrder[statusB];
+                        })
+                        .map(item => ({
+                            itemId: item.id,
+                            text: this.getLangText(item.details[marketCode].summary) + '。' + 
+      this.getLangText(item.details[marketCode].full).substring(0, 40) + '...'
+                        }));
+                },
+
+                toggleCountryFilter(marketCode, status) {
+                    if (!status || this.countryViewFilters[marketCode] === status) {
+                        delete this.countryViewFilters[marketCode];
+                        this.countryViewFilters = { ...this.countryViewFilters };
+                    } else {
+                        this.countryViewFilters[marketCode] = status;
+                    }
+                },
+
+                // 检查锁
+                checkLock(){ 
+                    const editing = this.db.meta.editing
+                    if(editing){
+                        const now = Date.now()
+                        if(now < editing.expire && editing.user !== this.currentUser){
+                            this.isLocked = true
+                        } else {
+                            // 锁已过期，清除
+                            this.db.meta.editing = null
+                            this.isLocked = false
+                        }
+                    } else {
+                        // 没有锁，设置为未锁定
+                        this.isLocked = false
+                    }
+                },
+
+                // 计算市场状态计数
+                calculateMarketStatusCounts(){ 
+                    this.marketStatusCounts = {};
+                    this.markets.forEach(market => {
+                        const counts = {
+                            not_fullfill: 0,
+                            open_need_test: 0,
+                            fullfill: 0
+                        };
+                        // 只统计符合当前组别筛选条件的条目
+                        const filteredItems = this.items.filter(item => {
+                            return this.selectedGroups.length === 0 || this.selectedGroups.includes(item.groupId);
+                        });
+                        filteredItems.forEach(item => {
+                            const status = item.details[market.code]?.status;
+                            if(status){
+                                counts[status]++;
+                            }
+                        });
+                        this.marketStatusCounts[market.code] = counts;
+                    });
+                },
+
+                // 切换市场筛选
+                toggleMarketFilter(marketCode, status){ 
+                    if(!this.marketFilters[marketCode]){
+                        this.marketFilters[marketCode] = [];
+                    }
+                    const index = this.marketFilters[marketCode].indexOf(status);
+                    if(index > -1){
+                        this.marketFilters[marketCode].splice(index, 1);
+                    } else {
+                        this.marketFilters[marketCode].push(status);
+                    }
+                },
+
+                // 清除市场筛选
+                clearMarketFilter(marketCode){ 
+                    delete this.marketFilters[marketCode];
+                },
+
+                // 检查市场筛选是否激活
+                isMarketFilterActive(marketCode, status){ 
+                    return this.marketFilters[marketCode]?.includes(status) || false;
+                },
+
+                // 检查市场是否有筛选
+                hasMarketFilter(marketCode){ 
+                    return this.marketFilters[marketCode]?.length > 0 || false;
+                },
+                
+                // 创建锁
+                createLock(){ 
+                    if(this.isLocked) return false
+                    
+                    this.db.meta.editing = {
+                        user: this.currentUser,
+                        startTime: new Date().toLocaleString(),
+                        expire: Date.now() + 30 * 1000 // 30秒过期
+                    }
+                    
+                    // 开始定时刷新锁
+                    this.startLockRefresh()
+                    return true
+                },
+                
+                // 刷新锁
+                refreshLock(){ 
+                    if(this.db.meta.editing && this.db.meta.editing.user === this.currentUser){
+                        this.db.meta.editing.expire = Date.now() + 30 * 1000
+                    }
+                },
+                
+                // 开始定时刷新锁
+                startLockRefresh(){ 
+                    this.stopLockRefresh()
+                    this.lockRefreshInterval = setInterval(() => {
+                        this.refreshLock()
+                    }, 10000) // 每10秒刷新一次
+                },
+                
+                // 停止刷新锁
+                stopLockRefresh(){ 
+                    if(this.lockRefreshInterval){
+                        clearInterval(this.lockRefreshInterval)
+                        this.lockRefreshInterval = null
+                    }
+                },
+                
+                // 清除锁
+                clearLock(){ 
+                    if(this.db.meta.editing && this.db.meta.editing.user === this.currentUser){
+                        this.db.meta.editing = null
+                    }
+                    this.stopLockRefresh()
+                },
+                
+
+                
+                // 显示历史版本模态框
+                showHistoryModal() {
+                    this.showHistory = true;
+                },
+                
+                // 修改恢复版本的方法
+                restoreVersion(entry) { 
+                    if (!entry || !entry.data) return;
+                    
+                    const msg = this.lang === 'zh' ? 
+                        `确定要恢复到版本 v${entry.version} 吗？当前未保存的修改将会丢失。` : 
+                        `Restore to v${entry.version}? Unsaved changes will be lost.`;
+
+                    if (confirm(msg)) {
+                        // 使用解构赋值或重新赋值确保 Alpine.js 监听到变化
+                        this.markets = JSON.parse(JSON.stringify(entry.data.markets));
+                        this.groups = JSON.parse(JSON.stringify(entry.data.groups));
+                        this.items = JSON.parse(JSON.stringify(entry.data.items));
+                        
+                        this.showHistory = false; // 关闭窗口
+                        this.dirty = false;
+                        alert(this.lang === 'zh' ? '版本已恢复' : 'Restored');
+                    }
+                },
+                
+                // 修改生成历史的方法
+                saveHistory() { 
+                    // 深度克隆当前数据，防止引用污染
+                    const snapshot = {
+                        version: this.db.meta.version,
+                        editor: this.userInfo.name,
+                        userId: this.userInfo.userId,
+                        time: new Date().toLocaleString(),
+                        data: {
+                            markets: JSON.parse(JSON.stringify(this.markets)),
+                            groups: JSON.parse(JSON.stringify(this.groups)),
+                            items: JSON.parse(JSON.stringify(this.items))
+                        }
+                    };
+                    
+                    // 初始化数组防止报错
+                    if (!this.db.history) this.db.history = [];
+                    
+                    // 插入到最前面
+                    this.db.history.unshift(snapshot);
+                    
+                    // 限制条数
+                    if (this.db.history.length > 15) {
+                        this.db.history = this.db.history.slice(0, 15);
+                    }
+                },
+                
+                async init(){
+    let loadedFromSupabase = false;
+    
+    try {
+        const sb = getSupabaseClient();
+        if (sb) {
+            const { data, error } = await sb
+                .from('app_data')
+                .select('data')
+                .eq('id', 'main')
+                .single();
+            
+            if (!error && data && data.data) {
+                const dbData = data.data;
+                this.db = {
+                    meta: dbData.meta,
+                    history: dbData.history || []
+                };
+                this.markets = dbData.current.markets;
+                this.groups = dbData.current.groups;
+                this.items = dbData.current.items;
+                if (dbData.current.editPasswordHash) {
+                    this.editPasswordHash = dbData.current.editPasswordHash;
+                }
+                loadedFromSupabase = true;
+                this.dbConnected = true;
+                localStorage.setItem('autoRegData', JSON.stringify(dbData));
+                console.log('Data loaded from Supabase');
+            } else if (error) {
+                console.warn('Supabase load error:', error.message);
+            }
+        } else {
+            console.warn('Supabase client not available');
+        }
+    } catch (e) {
+        console.warn('Supabase connection failed, falling back to localStorage:', e.message);
+    }
+    
+    if (!loadedFromSupabase) {
+        const saved = localStorage.getItem('autoRegData');
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                
+                if (data.meta && data.current) {
+                    this.db = {
+                        meta: data.meta,
+                        history: data.history || []
+                    };
+                    this.markets = data.current.markets;
+                    this.groups = data.current.groups;
+                    this.items = data.current.items;
+                    if (data.current.editPasswordHash) {
+                        this.editPasswordHash = data.current.editPasswordHash;
+                    }
+                } else if (data.db) {
+                    this.db = data.db;
+                    if (data.db.current) {
+                        this.markets = data.db.current.markets;
+                        this.groups = data.db.current.groups;
+                        this.items = data.db.current.items;
+                        if (data.db.current.editPasswordHash) {
+                            this.editPasswordHash = data.db.current.editPasswordHash;
+                        }
+                    }
+                } else {
+                    this.markets = data.markets || [];
+                    this.groups = data.groups || [];
+                    this.items = data.items || [];
+                    this.db = {
+                        meta: {
+                            version: 1,
+                            lastEditor: '',
+                            lastEditTime: new Date().toLocaleString(),
+                            editing: null
+                        },
+                        history: []
+                    };
+                }
+                console.log('Data loaded from localStorage (offline mode)');
+            } catch (e) {
+                console.error('Failed to parse saved data', e);
+            }
+        }
+    }
+
+    // 迁移 standardFile → standardFiles
+    this.items.forEach(item => {
+        Object.values(item.details).forEach(d => {
+            if(d.standardFile && !d.standardFiles){
+                if(typeof d.standardFile === 'string'){
+                    d.standardFiles = [{ data: d.standardFile, name: 'preview', type: '' }]
+                } else if(typeof d.standardFile === 'object' && d.standardFile !== null){
+                    d.standardFiles = [d.standardFile]
+                }
+                delete d.standardFile
+            }
+            if(!d.standardFiles){
+                d.standardFiles = []
+            }
+        })
+    })
+
+    if (!this.db.history) {
+        this.db.history = [];
+    }
+
+    // 清理异常锁
+    const editing = this.db.meta.editing
+    if(editing){
+        if(Date.now() > editing.expire){
+            this.db.meta.editing = null
+        }
+    }
+
+    // 检查锁
+    this.checkLock()
+
+    // 页面关闭自动清锁
+    window.addEventListener('beforeunload', () => {
+        if(this.db.meta.editing?.user === this.currentUser){
+            this.db.meta.editing = null
+        }
+    })
+
+    // 计算市场状态计数
+    this.calculateMarketStatusCounts()
+
+    // 监听数据变化，重新计算市场状态计数
+    this.$watch('items', () => {
+        this.calculateMarketStatusCounts()
+        if(!this.editMode) this.save()
+    }, { deep: true })
+    this.$watch('markets', () => {
+        this.calculateMarketStatusCounts()
+        if(!this.editMode) this.save()
+    }, { deep: true })
+    this.$watch('groups', () => {
+        if(!this.editMode) this.save()
+    }, { deep: true })
+    this.$watch('selectedGroups', () => {
+        this.calculateMarketStatusCounts()
+    })
+},
+
+async save(){
+    clearTimeout(this._saveTimer)
+    this._saveTimer = setTimeout(async ()=>{
+        if(!this.db){
+            this.db = {
+                meta: {
+                    version: 1,
+                    lastEditor: '',
+                    lastEditTime: new Date().toLocaleString(),
+                    editing: null
+                },
+                history: []
+            }
+        }
+        
+        const dbData = {
+            meta: this.db.meta,
+            current: {
+                markets: this.markets,
+                groups: this.groups,
+                items: this.items,
+                editPasswordHash: this.editPasswordHash
+            },
+            history: this.db.history
+        }
+        
+        try {
+            const sb = getSupabaseClient();
+            if (sb) {
+                const { error } = await sb
+                    .from('app_data')
+                    .upsert({
+                        id: 'main',
+                        data: dbData,
+                        updated_at: new Date().toISOString()
+                    });
+                
+                if (error) {
+                    console.warn('Supabase save failed, falling back to localStorage:', error.message);
+                    this.dbConnected = false;
+                    localStorage.setItem('autoRegData', JSON.stringify(dbData));
+                } else {
+                    this.dbConnected = true;
+                    localStorage.setItem('autoRegData', JSON.stringify(dbData));
+                }
+            } else {
+                this.dbConnected = false;
+                localStorage.setItem('autoRegData', JSON.stringify(dbData));
+            }
+        } catch (e) {
+            console.warn('Supabase connection error, saving to localStorage:', e.message);
+            this.dbConnected = false;
+            localStorage.setItem('autoRegData', JSON.stringify(dbData));
+        }
+    }, 500)
+},
+
+async saveNow(){
+    if(!this.db){
+        this.db = {
+            meta: {
+                version: 1,
+                lastEditor: '',
+                lastEditTime: new Date().toLocaleString(),
+                editing: null
+            },
+            history: []
+        }
+    }
+    
+    const dbData = {
+        meta: this.db.meta,
+        current: {
+            markets: this.markets,
+            groups: this.groups,
+            items: this.items,
+            editPasswordHash: this.editPasswordHash
+        },
+        history: this.db.history
+    }
+    
+    try {
+        const sb = getSupabaseClient();
+        if (sb) {
+            const { error } = await sb
+                .from('app_data')
+                .upsert({
+                    id: 'main',
+                    data: dbData,
+                    updated_at: new Date().toISOString()
+                });
+            
+            if (error) {
+                console.warn('Supabase save failed:', error.message);
+                this.dbConnected = false;
+                localStorage.setItem('autoRegData', JSON.stringify(dbData));
+                alert(this.lang === 'zh' ? '云端保存失败，数据已保存到本地缓存' : 'Cloud save failed, data saved to local cache');
+            } else {
+                this.dbConnected = true;
+                localStorage.setItem('autoRegData', JSON.stringify(dbData));
+                console.log('Saved to Supabase successfully');
+            }
+        } else {
+            this.dbConnected = false;
+            localStorage.setItem('autoRegData', JSON.stringify(dbData));
+            alert(this.lang === 'zh' ? '云端未连接，数据已保存到本地缓存' : 'Cloud not connected, data saved to local cache');
+        }
+    } catch (e) {
+        console.warn('Supabase connection error:', e.message);
+        this.dbConnected = false;
+        localStorage.setItem('autoRegData', JSON.stringify(dbData));
+        alert(this.lang === 'zh' ? '网络连接失败，数据已保存到本地缓存' : 'Network error, data saved to local cache');
+    }
+},
+
+addItem(){
+    const id = Date.now()
+    const newItem = {
+        id,
+        groupId:'interior',
+        regCode:'NEW',
+        title:{ zh:'新条目', en:'New Item' },
+        globalNote:{ zh:'', en:'' },
+        details:{}
+    }
+
+    this.markets.forEach(m=>{
+        newItem.details[m.code]={
+            status:'fullfill',
+            summary:{ zh:'', en:'' },
+            full:{ zh:'', en:'' },
+            special:{ zh:'', en:'' },
+            test:{ zh:'', en:'' },
+            impact:{ zh:'', en:'' },
+            standardFiles: []
+        }
+    })
+
+    this.items.push(newItem)
+},
+
+addMarket(){
+    const code='M'+Date.now()
+
+    const newMarket={
+        code,
+        name:{ zh:'新国家', en:'New Market' },
+        standard:{ zh:'NEW', en:'NEW' },
+        description:{ zh:'', en:'' }
+    }
+
+    this.markets.push(newMarket)
+
+    this.items.forEach(item=>{
+        item.details[code]={
+            status:'fullfill',
+            summary:{ zh:'', en:'' },
+            full:{ zh:'', en:'' },
+            special:{ zh:'', en:'' },
+            test:{ zh:'', en:'' },
+            impact:{ zh:'', en:'' }
+        }
+    })
+},
+
+deleteItem(id){
+    this.items = this.items.filter(item => item.id !== id)
+},
+
+deleteMarket(code){
+    this.markets = this.markets.filter(m => m.code !== code)
+
+    this.items = this.items.map(item => {
+        const newDetails = { ...item.details }
+        delete newDetails[code]
+        return { ...item, details: newDetails }
+    })
+},
+
+// 导出数据为JSON文件
+exportData() {
+    const exportData = {
+        meta: this.db.meta,
+        current: {
+            markets: this.markets,
+            groups: this.groups,
+            items: this.items
+        },
+        history: this.db.history
+    };
+    
+    const dataStr = JSON.stringify(exportData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `autoReg_data_${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    
+    URL.revokeObjectURL(url);
+},
+
+// 触发导入文件选择
+triggerImport() {
+    document.getElementById('importFile').click();
+},
+
+// 导入JSON文件数据
+importData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            
+            if (importedData.meta && importedData.current) {
+                // 验证数据结构
+                if (Array.isArray(importedData.current.markets) && 
+                    Array.isArray(importedData.current.groups) && 
+                    Array.isArray(importedData.current.items)) {
+                    
+                    const confirmMsg = this.lang === 'zh' ? 
+                        '确定要导入数据吗？当前未保存的修改将会丢失。' : 
+                        'Import data? Unsaved changes will be lost.';
+                    
+                    if (confirm(confirmMsg)) {
+                        // 导入数据
+                        this.db = {
+                            meta: importedData.meta,
+                            history: importedData.history || []
+                        };
+                        this.markets = importedData.current.markets;
+                        this.groups = importedData.current.groups;
+                        this.items = importedData.current.items;
+                        
+                        this.dirty = false;
+                        this.save();
+                        alert(this.lang === 'zh' ? '导入成功！' : 'Import successful!');
+                    }
+                } else {
+                    alert(this.lang === 'zh' ? '无效的数据格式！' : 'Invalid data format!');
+                }
+            } else {
+                alert(this.lang === 'zh' ? '无效的数据格式！' : 'Invalid data format!');
+            }
+        } catch (error) {
+            alert(this.lang === 'zh' ? '文件解析失败！' : 'File parsing failed!');
+            console.error('Import error:', error);
+        }
+    };
+    reader.readAsText(file);
+    
+    // 重置文件输入，允许重复选择同一个文件
+    event.target.value = '';
+},
+
+// 上传标准原文文件
+uploadStandardFile(item, marketCode, event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+        alert(this.lang === 'zh' ? '单个文件大小不能超过 10MB！' : 'Single file size cannot exceed 10MB!');
+        return;
+    }
+    
+    const currentFiles = item.details[marketCode]?.standardFiles || [];
+    const totalSize = currentFiles.reduce((sum, f) => {
+        return sum + (f.data ? Math.ceil(f.data.length * 0.75) : 0);
+    }, 0) + file.size;
+    
+    if (totalSize > 20 * 1024 * 1024) {
+        if (!confirm(this.lang === 'zh' 
+            ? '文件总大小已超过 20MB，可能导致浏览器存储不足。是否继续？' 
+            : 'Total file size exceeds 20MB, may cause browser storage issues. Continue?')) {
+            return;
+        }
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            if (!item.details[marketCode].standardFiles) {
+                item.details[marketCode].standardFiles = [];
+            }
+            item.details[marketCode].standardFiles.push({
+                data: e.target.result,
+                name: file.name,
+                type: file.type
+            });
+            this.dirty = true;
+        } catch (error) {
+            alert(this.lang === 'zh' ? '文件上传失败！' : 'File upload failed!');
+            console.error('Upload error:', error);
+        }
+    };
+    reader.readAsDataURL(file);
+    
+    event.target.value = '';
+},
+
+removeStandardFile(item, marketCode, index) {
+    if (confirm(this.lang === 'zh' ? '确定删除此文件？' : 'Delete this file?')) {
+        item.details[marketCode].standardFiles.splice(index, 1);
+        this.dirty = true;
+    }
+},
+
+openFilePreview(fileData) {
+    if (!fileData) return;
+
+    let dataUrl, fileName, mimeType;
+
+    if (typeof fileData === 'object' && fileData.data) {
+        dataUrl = fileData.data;
+        fileName = fileData.name || 'preview';
+        mimeType = fileData.type || '';
+    } else if (typeof fileData === 'string') {
+        dataUrl = fileData;
+        fileName = 'preview';
+        mimeType = '';
+    } else {
+        return;
+    }
+
+    if (!dataUrl.startsWith('data:')) {
+        window.open(dataUrl, '_blank');
+        return;
+    }
+
+    const blob = this.dataURLtoBlob(dataUrl);
+    const url = URL.createObjectURL(blob);
+
+    if (!mimeType) {
+        mimeType = dataUrl.split(';')[0].split(':')[1] || '';
+    }
+
+    const isPdf = mimeType === 'application/pdf';
+    const isImage = mimeType.startsWith('image/');
+    const isText = mimeType.startsWith('text/') || ['text/plain','text/csv','text/html','text/xml','application/json','application/xml'].includes(mimeType);
+    const isOffice = [
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ].includes(mimeType);
+
+    if (isPdf) {
+        window.open(url, '_blank');
+    } else if (isImage) {
+        const win = window.open('', '_blank');
+        if (win) {
+            win.document.write('<html><head><title>' + fileName + '</title></head><body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f3f4f6"><img src="' + url + '" style="max-width:100%;max-height:100vh"></body></html>');
+            win.document.close();
+        }
+    } else if (isText) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const text = e.target.result;
+            const win = window.open('', '_blank');
+            if (win) {
+                win.document.write('<html><head><title>' + fileName + '</title><style>body{font-family:monospace;white-space:pre-wrap;padding:20px;font-size:14px;line-height:1.6;}</style></head><body>' + text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</body></html>');
+                win.document.close();
+            }
+        };
+        reader.readAsText(blob);
+    } else if (isOffice) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        alert(this.lang === 'zh' ? 'Office 文件暂不支持在线预览，已自动下载。请用本地软件打开查看。' : 'Office files cannot be previewed in browser. File has been downloaded. Please open with local software.');
+    } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+},
+
+dataURLtoBlob(dataURL) {
+    const parts = dataURL.split(',');
+    const mime = parts[0].match(/:(.*?);/)[1];
+    const b64 = atob(parts[1]);
+    const arr = new Uint8Array(b64.length);
+    for (let i = 0; i < b64.length; i++) arr[i] = b64.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+},
+
+uploadGuideFile(market, event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+        alert(this.lang === 'zh' ? '文件大小不能超过 10MB！' : 'File size cannot exceed 10MB!');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            market.guideFile = {
+                data: e.target.result,
+                name: file.name,
+                type: file.type
+            };
+            this.dirty = true;
+            alert(this.lang === 'zh' ? '文件上传成功！' : 'File uploaded successfully!');
+        } catch (error) {
+            alert(this.lang === 'zh' ? '文件上传失败！' : 'File upload failed!');
+            console.error('Upload error:', error);
+        }
+    };
+    reader.readAsDataURL(file);
+    
+    event.target.value = '';
+}
+            }
+        }
+    </script>
+
+</body>
+</html>
